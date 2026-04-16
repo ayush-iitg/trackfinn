@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Daily Mission Tracker</title>
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body style="margin: 0">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      const START_DATE = new Date(2026, 3, 11);
+      const TOTAL_DAYS = 150;
+      const STORAGE_KEY = "mission-tracker-v3";
+
+      function isValidDaysData(value) {
+        return Array.isArray(value) && value.length === TOTAL_DAYS;
+      }
+
+      async function loadStoredDays() {
+        try {
+          if (typeof window !== "undefined" && window.storage?.get) {
+            const result = await window.storage.get(STORAGE_KEY);
+            if (result && result.value) {
+              const parsed = JSON.parse(result.value);
+              if (isValidDaysData(parsed)) return parsed;
+            }
+          }
+        } catch {}
+
+        try {
+          if (typeof window !== "undefined" && window.localStorage) {
+            const raw = window.localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (isValidDaysData(parsed)) return parsed;
+            }
+          }
+        } catch {}
+
+        return null;
+      }
+
+      async function saveStoredDays(days) {
+        try {
+          if (typeof window !== "undefined" && window.storage?.set) {
+            await window.storage.set(STORAGE_KEY, JSON.stringify(days));
+          }
+        } catch {}
+
+        try {
+          if (typeof window !== "undefined" && window.localStorage) {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(days));
+          }
+        } catch {}
+      }
+
+      function generateDays() {
+        return Array.from({ length: TOTAL_DAYS }, (_, i) => {
+          const d = new Date(START_DATE);
+          d.setDate(d.getDate() + i);
+          return {
+            id: i + 1,
+            day: i + 1,
+            date: d.toISOString().split("T")[0],
+            targets: [],
+            tomorrowTargets: "",
+            completed: false,
+          };
+        });
+      }
+
+      function getTodayStr() {
+        return new Date().toISOString().split("T")[0];
+      }
+
+      function calcStats(days) {
+        const completedDays = days.filter((d) => d.completed);
+        const totalXP = completedDays.length * 10;
+        const level = Math.floor(totalXP / 50) + 1;
+        const xpInLevel = totalXP % 50;
+        const today = getTodayStr();
+        const sorted = [...days]
+          .filter((d) => d.date <= today)
+          .sort((a, b) => b.date.localeCompare(a.date));
+        let streak = 0;
+        for (const d of sorted) {
+          if (d.completed) streak++;
+          else break;
+        }
+        const totalCompleted = completedDays.length;
+        const pct = Math.round((totalCompleted / TOTAL_DAYS) * 100);
+        return { totalXP, level, xpInLevel, streak, totalCompleted, pct };
+      }
+
+      function formatDate(dateStr) {
+        const d = new Date(dateStr + "T00:00:00");
+        return d.toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        });
+      }
+
+      const LEVEL_TITLES = [
+        "Recruit",
+        "Apprentice",
+        "Warrior",
+        "Knight",
+        "Champion",
+        "Hero",
+        "Legend",
+        "Master",
+        "Grandmaster",
+        "Mythic",
+      ];
+
+      function getLevelTitle(level) {
+        return (
+          LEVEL_TITLES[Math.min(level - 1, LEVEL_TITLES.length - 1)] ||
+          "Ascended"
+        );
+      }
+
+      function downloadJson(filename, data) {
+        if (typeof window === "undefined") return;
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function App() {
+        const [days, setDays] = useState([]);
+        const [view, setView] = useState("today");
+        const [loading, setLoading] = useState(true);
+        const [saveStatus, setSaveStatus] = useState("");
+        const today = getTodayStr();
+
+        useEffect(() => {
+          async function load() {
+            const stored = await loadStoredDays();
+            if (stored) setDays(stored);
+            else setDays(generateDays());
+            setLoading(false);
+          }
+          load();
+        }, []);
+
+        useEffect(() => {
+          if (!loading && days.length > 0) saveStoredDays(days);
+        }, [days, loading]);
+
+        const handleExportBackup = () => {
+          const stamp = getTodayStr();
+          downloadJson(`mission-tracker-backup-${stamp}.json`, days);
+          setSaveStatus("Backup downloaded. Keep this file safe.");
+        };
+
+        const handleImportBackup = async (event) => {
+          const file = event.target.files && event.target.files[0];
+          event.target.value = "";
+          if (!file) return;
+
+          try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            if (!isValidDaysData(parsed)) {
+              setSaveStatus(
+                "Invalid backup file. Please select a full 150-day backup.",
+              );
+              return;
+            }
+            setDays(parsed);
+            setSaveStatus("Backup restored successfully.");
+          } catch {
+            setSaveStatus(
+              "Could not read this file. Please choose a valid JSON backup.",
+            );
+          }
+        };
+
+        const updateDay = (id, updates) =>
+          setDays((prev) =>
+            prev.map((d) => (d.id === id ? { ...d, ...updates } : d)),
+          );
+        const toggleCompleted = (id) =>
+          setDays((prev) =>
+            prev.map((d) =>
+              d.id === id ? { ...d, completed: !d.completed } : d,
+            ),
+          );
+
+        const addTarget = (dayId, text) => {
+          if (!text.trim()) return;
+          setDays((prev) =>
+            prev.map((d) =>
+              d.id === dayId
+                ? {
+                    ...d,
+                    targets: [
+                      ...d.targets,
+                      { id: Date.now(), text: text.trim(), done: false },
+                    ],
+                  }
+                : d,
+            ),
+          );
+        };
+
+        const toggleTarget = (dayId, targetId) =>
+          setDays((prev) =>
+            prev.map((d) =>
+              d.id === dayId
+                ? {
+                    ...d,
+                    targets: d.targets.map((t) =>
+                      t.id === targetId ? { ...t, done: !t.done } : t,
+                    ),
+                  }
+                : d,
+            ),
+          );
+
+        const removeTarget = (dayId, targetId) =>
+          setDays((prev) =>
+            prev.map((d) =>
+              d.id === dayId
+                ? { ...d, targets: d.targets.filter((t) => t.id !== targetId) }
+                : d,
+            ),
+          );
+
+        const getFiltered = () => {
+          if (view === "today") return days.filter((d) => d.date === today);
+          if (view === "upcoming")
+            return days.filter((d) => d.date >= today).slice(0, 10);
+          if (view === "completed") return days.filter((d) => d.completed);
+          return days;
+        };
+
+        const filtered = getFiltered();
+
+        if (loading) {
+          return (
+            <div
+              style={{
+                background: "#08101e",
+                minHeight: "100vh",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{
+                  color: "#f59e0b",
+                  fontFamily: "monospace",
+                  fontSize: 18,
+                  letterSpacing: 2,
+                }}
+              >
+                LOADING MISSION DATA...
+              </div>
+            </div>
+          );
+        }
+
+        const stats = calcStats(days);
+
+        return (
+          <div
+            style={{
+              fontFamily: "'Rajdhani', 'Trebuchet MS', sans-serif",
+              background: "#08101e",
+              minHeight: "100vh",
+              color: "#e2e8f0",
+            }}
+          >
+            <style>{`
+              @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap');
+              *{box-sizing:border-box;margin:0;padding:0}
+              ::-webkit-scrollbar{width:5px}
+              ::-webkit-scrollbar-track{background:transparent}
+              ::-webkit-scrollbar-thumb{background:#1e2a3a;border-radius:9px}
+              .card{transition:transform .2s,box-shadow .2s}
+              .card:hover{transform:translateY(-3px);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+              .tab{cursor:pointer;transition:all .15s;border:none}
+              .tab:hover{opacity:.85}
+              .cbtn{cursor:pointer;transition:all .15s;border:none}
+              .cbtn:hover{filter:brightness(1.15);transform:scale(1.02)}
+              .cbtn:active{transform:scale(.98)}
+              .xfill{transition:width .6s ease}
+              .delbtn{opacity:0;transition:opacity .15s;cursor:pointer;background:none;border:none;color:#ef4444;font-size:16px;line-height:1;padding:0 2px}
+              .trow:hover .delbtn{opacity:1}
+              .addinput{background:transparent;border:none;outline:none;color:#94a3b8;font-size:13px;flex:1;font-family:inherit}
+              .addinput::placeholder{color:#2d3748}
+              .taddinput{background:transparent;border:none;outline:none;color:#94a3b8;font-size:13px;width:100%;font-family:inherit;resize:none}
+              .taddinput::placeholder{color:#2d3748}
+              .taddinput:focus{color:#e2e8f0}
+              input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#f59e0b;flex-shrink:0}
+            `}</style>
+
+            <div
+              style={{
+                background: "linear-gradient(180deg,#0b1525 0%,#08101e 100%)",
+                borderBottom: "1px solid rgba(245,158,11,.15)",
+                padding: "20px 20px 16px",
+              }}
+            >
+              <div style={{ maxWidth: 960, margin: "0 auto" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    marginBottom: 18,
+                  }}
+                >
+                  <div>
+                    <h1
+                      style={{
+                        fontFamily: "'Orbitron',monospace",
+                        fontSize: 20,
+                        fontWeight: 900,
+                        color: "#f59e0b",
+                        letterSpacing: 1.5,
+                      }}
+                    >
+                      Daily Mission Tracker
+                    </h1>
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "#475569",
+                        marginTop: 4,
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      150-Day Challenge · Apr 11 – Sep 07, 2026
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div
+                      style={{
+                        fontFamily: "'Orbitron',monospace",
+                        fontSize: 13,
+                        color: "#f59e0b",
+                      }}
+                    >
+                      {getLevelTitle(stats.level).toUpperCase()}
+                    </div>
+                    <div
+                      style={{ fontSize: 11, color: "#475569", marginTop: 2 }}
+                    >
+                      {stats.totalCompleted}/{TOTAL_DAYS} days · {stats.pct}%
+                      done
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4,1fr)",
+                    gap: 10,
+                    marginBottom: 14,
+                  }}
+                >
+                  {[
+                    {
+                      label: "LEVEL",
+                      value: stats.level,
+                      color: "#f59e0b",
+                      bg: "rgba(245,158,11,.1)",
+                      border: "rgba(245,158,11,.25)",
+                    },
+                    {
+                      label: "TOTAL XP",
+                      value: stats.totalXP,
+                      color: "#a78bfa",
+                      bg: "rgba(139,92,246,.1)",
+                      border: "rgba(139,92,246,.25)",
+                    },
+                    {
+                      label: "STREAK",
+                      value: stats.streak,
+                      color: "#fb923c",
+                      bg: "rgba(251,146,60,.1)",
+                      border: "rgba(251,146,60,.25)",
+                    },
+                    {
+                      label: "WINS",
+                      value: stats.totalCompleted,
+                      color: "#34d399",
+                      bg: "rgba(52,211,153,.1)",
+                      border: "rgba(52,211,153,.25)",
+                    },
+                  ].map((s) => (
+                    <div
+                      key={s.label}
+                      style={{
+                        background: s.bg,
+                        border: `1px solid ${s.border}`,
+                        borderRadius: 10,
+                        padding: "10px 14px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 9,
+                          color: s.color,
+                          letterSpacing: 1,
+                          fontWeight: 700,
+                          marginBottom: 5,
+                        }}
+                      >
+                        {s.label}
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "'Orbitron',monospace",
+                          fontSize: 24,
+                          fontWeight: 700,
+                          color: s.color,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {s.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: 5,
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: "#475569" }}>
+                      XP Progress — Level {stats.level} to {stats.level + 1}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                      {stats.xpInLevel} / 50 XP
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      background: "rgba(255,255,255,.06)",
+                      borderRadius: 999,
+                      height: 7,
+                      overflow: "hidden",
+                      position: "relative",
+                    }}
+                  >
+                    <div
+                      className="xfill"
+                      style={{
+                        height: "100%",
+                        width: `${(stats.xpInLevel / 50) * 100}%`,
+                        background: "linear-gradient(90deg,#f59e0b,#fbbf24)",
+                        borderRadius: 999,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    className="cbtn"
+                    onClick={handleExportBackup}
+                    style={{
+                      background: "rgba(59,130,246,.14)",
+                      border: "1px solid rgba(59,130,246,.35)",
+                      color: "#93c5fd",
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Download Backup
+                  </button>
+                  <label
+                    className="cbtn"
+                    style={{
+                      background: "rgba(16,185,129,.14)",
+                      border: "1px solid rgba(16,185,129,.35)",
+                      color: "#6ee7b7",
+                      borderRadius: 8,
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: "inherit",
+                      display: "inline-flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    Restore Backup
+                    <input
+                      type="file"
+                      accept="application/json"
+                      onChange={handleImportBackup}
+                      style={{ display: "none" }}
+                    />
+                  </label>
+                  <span style={{ fontSize: 11, color: "#64748b" }}>
+                    {saveStatus || "Data auto-saves in this browser."}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                maxWidth: 960,
+                margin: "0 auto",
+                padding: "14px 20px 0",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  background: "rgba(255,255,255,.03)",
+                  borderRadius: 10,
+                  padding: 4,
+                  border: "1px solid rgba(255,255,255,.05)",
+                }}
+              >
+                {[
+                  { id: "today", label: "Today" },
+                  { id: "upcoming", label: "Upcoming" },
+                  { id: "all", label: "All 150 Days" },
+                  { id: "completed", label: "Completed" },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    className="tab"
+                    onClick={() => setView(t.id)}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 7,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                      background:
+                        view === t.id ? "rgba(245,158,11,.15)" : "transparent",
+                      color: view === t.id ? "#f59e0b" : "#4b5563",
+                      border:
+                        view === t.id
+                          ? "1px solid rgba(245,158,11,.3)"
+                          : "1px solid transparent",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#374151",
+                  marginTop: 10,
+                  marginBottom: 2,
+                  paddingLeft: 2,
+                }}
+              >
+                {view === "today" && `Focus on today — ${formatDate(today)}`}
+                {view === "upcoming" && "Your next 10 missions"}
+                {view === "all" &&
+                  `Full 150-day journey (${stats.totalCompleted} complete, ${TOTAL_DAYS - stats.totalCompleted} remaining)`}
+                {view === "completed" &&
+                  `Hall of Fame — ${stats.totalCompleted} missions conquered`}
+              </div>
+            </div>
+
+            <div
+              style={{
+                maxWidth: 960,
+                margin: "0 auto",
+                padding: "10px 20px 40px",
+              }}
+            >
+              {filtered.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "80px 20px",
+                    color: "#2d3748",
+                  }}
+                >
+                  <div style={{ fontSize: 32, marginBottom: 14 }}>
+                    {view === "completed" ? "No wins yet" : "Nothing here"}
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))",
+                    gap: 14,
+                    marginTop: 10,
+                  }}
+                >
+                  {filtered.map((day) => (
+                    <DayCard
+                      key={day.id}
+                      day={day}
+                      isToday={day.date === today}
+                      isPast={day.date < today}
+                      onToggleCompleted={() => toggleCompleted(day.id)}
+                      onAddTarget={(t) => addTarget(day.id, t)}
+                      onToggleTarget={(tid) => toggleTarget(day.id, tid)}
+                      onRemoveTarget={(tid) => removeTarget(day.id, tid)}
+                      onUpdateTomorrow={(t) =>
+                        updateDay(day.id, { tomorrowTargets: t })
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      function DayCard({
+        day,
+        isToday,
+        isPast,
+        onToggleCompleted,
+        onAddTarget,
+        onToggleTarget,
+        onRemoveTarget,
+        onUpdateTomorrow,
+      }) {
+        const [newText, setNewText] = useState("");
+
+        const border = day.completed
+          ? "rgba(52,211,153,.45)"
+          : isToday
+            ? "rgba(245,158,11,.5)"
+            : isPast && !day.completed
+              ? "rgba(239,68,68,.2)"
+              : "rgba(255,255,255,.07)";
+
+        const glow = day.completed
+          ? "0 0 0 1px rgba(52,211,153,.1)"
+          : isToday
+            ? "0 0 0 1px rgba(245,158,11,.1)"
+            : "none";
+
+        const headerAccent = day.completed
+          ? "#34d399"
+          : isToday
+            ? "#f59e0b"
+            : isPast
+              ? "#ef4444"
+              : "#4b5563";
+
+        const doneCount = day.targets.filter((t) => t.done).length;
+        const totalTargets = day.targets.length;
+
+        const handleKeyDown = (e) => {
+          if (e.key === "Enter" && newText.trim()) {
+            onAddTarget(newText.trim());
+            setNewText("");
+          }
+        };
+
+        return (
+          <div
+            className="card"
+            style={{
+              background: "#0d1628",
+              border: `1px solid ${border}`,
+              borderRadius: 12,
+              overflow: "hidden",
+              boxShadow: glow,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                height: 3,
+                background: day.completed
+                  ? "#34d399"
+                  : isToday
+                    ? "#f59e0b"
+                    : isPast
+                      ? "#ef444430"
+                      : "#ffffff0a",
+              }}
+            />
+
+            <div
+              style={{
+                padding: "12px 14px",
+                borderBottom: `1px solid rgba(255,255,255,.05)`,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    marginBottom: 3,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "'Orbitron',monospace",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: headerAccent,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    DAY {day.day}
+                  </span>
+                  {isToday && (
+                    <span
+                      style={{
+                        background: "rgba(245,158,11,.2)",
+                        color: "#f59e0b",
+                        fontSize: 9,
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        fontWeight: 700,
+                      }}
+                    >
+                      TODAY
+                    </span>
+                  )}
+                  {day.completed && (
+                    <span
+                      style={{
+                        background: "rgba(52,211,153,.2)",
+                        color: "#34d399",
+                        fontSize: 9,
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        fontWeight: 700,
+                      }}
+                    >
+                      DONE
+                    </span>
+                  )}
+                  {isPast && !day.completed && !isToday && (
+                    <span
+                      style={{
+                        background: "rgba(239,68,68,.15)",
+                        color: "#f87171",
+                        fontSize: 9,
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        fontWeight: 700,
+                      }}
+                    >
+                      MISSED
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: "#4b5563" }}>
+                  {formatDate(day.date)}
+                </div>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                <div
+                  style={{
+                    fontSize: 9,
+                    color: "#374151",
+                    letterSpacing: 1,
+                    marginBottom: 2,
+                  }}
+                >
+                  XP REWARD
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'Orbitron',monospace",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: day.completed ? "#f59e0b" : "#1e2a3a",
+                    lineHeight: 1,
+                  }}
+                >
+                  {day.completed ? "+10" : "10"}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ padding: "12px 14px", flex: 1 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "#4b5563",
+                    letterSpacing: 1,
+                    fontWeight: 700,
+                  }}
+                >
+                  TODAY TARGETS
+                </span>
+                {totalTargets > 0 && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: doneCount === totalTargets ? "#34d399" : "#6b7280",
+                    }}
+                  >
+                    {doneCount}/{totalTargets}
+                  </span>
+                )}
+              </div>
+
+              {totalTargets > 0 && (
+                <div
+                  style={{
+                    background: "rgba(255,255,255,.05)",
+                    borderRadius: 999,
+                    height: 3,
+                    marginBottom: 10,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${(doneCount / totalTargets) * 100}%`,
+                      background: "#34d399",
+                      borderRadius: 999,
+                      transition: "width .3s",
+                    }}
+                  />
+                </div>
+              )}
+
+              {totalTargets === 0 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#1e2a3a",
+                    fontStyle: "italic",
+                    marginBottom: 6,
+                  }}
+                >
+                  No targets added yet...
+                </div>
+              )}
+
+              {day.targets.map((t) => (
+                <div
+                  key={t.id}
+                  className="trow"
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    marginBottom: 7,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={t.done}
+                    onChange={() => onToggleTarget(t.id)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: 13,
+                      color: t.done ? "#2d3748" : "#94a3b8",
+                      textDecoration: t.done ? "line-through" : "none",
+                      lineHeight: 1.5,
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {t.text}
+                  </span>
+                  <button
+                    className="delbtn"
+                    onClick={() => onRemoveTarget(t.id)}
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 8,
+                  padding: "7px 10px",
+                  background: "rgba(255,255,255,.03)",
+                  borderRadius: 7,
+                  border: "1px dashed rgba(255,255,255,.07)",
+                }}
+              >
+                <span
+                  style={{
+                    color: "#2d3748",
+                    fontSize: 16,
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  +
+                </span>
+                <input
+                  className="addinput"
+                  placeholder="Add target and press Enter..."
+                  value={newText}
+                  onChange={(e) => setNewText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                />
+              </div>
+            </div>
+
+            <div style={{ padding: "0 14px 12px" }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "#4b5563",
+                  letterSpacing: 1,
+                  fontWeight: 700,
+                  marginBottom: 6,
+                }}
+              >
+                TOMORROW PLAN
+              </div>
+              <textarea
+                className="taddinput"
+                rows={2}
+                placeholder="Write tomorrow plan..."
+                value={day.tomorrowTargets}
+                onChange={(e) => onUpdateTomorrow(e.target.value)}
+                style={{
+                  background: "rgba(255,255,255,.03)",
+                  border: "1px solid rgba(255,255,255,.07)",
+                  borderRadius: 7,
+                  padding: "7px 10px",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              />
+            </div>
+
+            <div style={{ padding: "0 14px 14px" }}>
+              <button
+                className="cbtn"
+                onClick={onToggleCompleted}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  letterSpacing: 0.5,
+                  fontFamily: "inherit",
+                  background: day.completed
+                    ? "rgba(52,211,153,.12)"
+                    : "rgba(245,158,11,.12)",
+                  color: day.completed ? "#34d399" : "#f59e0b",
+                  border: `1px solid ${day.completed ? "rgba(52,211,153,.3)" : "rgba(245,158,11,.3)"}`,
+                }}
+              >
+                {day.completed
+                  ? "MISSION COMPLETE - UNDO"
+                  : "MARK AS COMPLETE +10 XP"}
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
