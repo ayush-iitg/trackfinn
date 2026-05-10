@@ -4,1023 +4,1252 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Daily Mission Tracker</title>
-    <script
-      crossorigin
-      src="https://unpkg.com/react@18/umd/react.development.js"
-    ></script>
-    <script
-      crossorigin
-      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
-    ></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   </head>
-  <body style="margin: 0">
+  <body style="margin:0">
     <div id="root"></div>
-
     <script type="text/babel">
-      const { useState, useEffect } = React;
+      const { useState, useEffect, useRef } = React;
 
-      const START_DATE = new Date(2026, 3, 11);
-      const TOTAL_DAYS = 150;
+      const START_DATE  = new Date(2026, 3, 11);   // Apr 11 2026
+      const END_DATE    = new Date(2026, 8, 7);    // Sep 07 2026
+      const TOTAL_DAYS  = 150;
       const STORAGE_KEY = "mission-tracker-v3";
+      const HABITS_KEY  = "mission-habits-v1";
+      const POMO_KEY    = "mission-pomoxp-v1";
 
-      function isValidDaysData(value) {
-        return Array.isArray(value) && value.length === TOTAL_DAYS;
+      const QUOTES = [
+        "The secret of getting ahead is getting started.",
+        "Small daily improvements over time lead to stunning results.",
+        "Discipline is the bridge between goals and accomplishment.",
+        "Every day is a chance to be better than yesterday.",
+        "Focus on the process — the results will follow.",
+        "One task at a time. One day at a time. Legends are built this way.",
+        "Your future self is watching. Make them proud.",
+        "Hard work beats talent when talent doesn't work hard.",
+        "Win the morning, win the day.",
+        "The pain of discipline is far less than the pain of regret.",
+        "Momentum is built one completed task at a time.",
+        "You don't rise to your goals — you fall to your systems.",
+        "Show up. Do the work. Trust the process.",
+      ];
+
+      const BLOCK_CATS = [
+        { id:"deep",     label:"Deep Work",  color:"#60a5fa" },
+        { id:"meeting",  label:"Meeting",    color:"#f59e0b" },
+        { id:"break",    label:"Break",      color:"#34d399" },
+        { id:"admin",    label:"Admin",      color:"#a78bfa" },
+        { id:"exercise", label:"Exercise",   color:"#fb923c" },
+        { id:"other",    label:"Other",      color:"#94a3b8" },
+      ];
+
+      const PRI = {
+        critical:{ label:"Critical", color:"#ef4444", bg:"rgba(239,68,68,.1)"   },
+        high:    { label:"High",     color:"#fb923c", bg:"rgba(251,146,60,.1)"  },
+        medium:  { label:"Medium",   color:"#f59e0b", bg:"rgba(245,158,11,.08)" },
+        low:     { label:"Low",      color:"#34d399", bg:"rgba(52,211,153,.08)" },
+      };
+
+      const LEVEL_TITLES = ["Recruit","Apprentice","Warrior","Knight","Champion","Hero","Legend","Master","Grandmaster","Mythic"];
+      const getLevelTitle = l => LEVEL_TITLES[Math.min(l-1, LEVEL_TITLES.length-1)] || "Ascended";
+
+      function getTodayStr() { return new Date().toISOString().split("T")[0]; }
+      function formatDate(s) {
+        return new Date(s+"T00:00:00").toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+      }
+      function formatDateShort(s) {
+        return new Date(s+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+      }
+      function formatTime(secs) {
+        const m = Math.floor(secs/60).toString().padStart(2,"0");
+        const s = (secs%60).toString().padStart(2,"0");
+        return `${m}:${s}`;
       }
 
-      async function loadStoredDays() {
-        try {
-          if (typeof window !== "undefined" && window.storage?.get) {
-            const result = await window.storage.get(STORAGE_KEY);
-            if (result && result.value) {
-              const parsed = JSON.parse(result.value);
-              if (isValidDaysData(parsed)) return parsed;
-            }
-          }
-        } catch {}
+      // Convert "HH:MM" 24h → "H AM/PM" or "H:MM AM/PM"
+      function to12h(t) {
+        if (!t) return "";
+        const [h, m] = t.split(":").map(Number);
+        const period = h < 12 ? "AM" : "PM";
+        const hour = h % 12 || 12;
+        return m === 0 ? `${hour} ${period}` : `${hour}:${m.toString().padStart(2,"0")} ${period}`;
+      }
 
-        try {
-          if (typeof window !== "undefined" && window.localStorage) {
-            const raw = window.localStorage.getItem(STORAGE_KEY);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (isValidDaysData(parsed)) return parsed;
-            }
-          }
-        } catch {}
+      function timeToMins(t) {
+        if (!t) return 0;
+        const [h, m] = t.split(":").map(Number);
+        // treat hours 0,1,2 as after midnight (24,25,26)
+        const adj = h < 6 ? h + 24 : h;
+        return adj * 60 + m;
+      }
 
+      function getDaysLeft() {
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        const end = new Date(END_DATE);
+        end.setHours(0,0,0,0);
+        const diff = Math.ceil((end - now) / (1000*60*60*24));
+        return Math.max(0, diff);
+      }
+
+      function getDayNumber() {
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        const start = new Date(START_DATE);
+        start.setHours(0,0,0,0);
+        const diff = Math.floor((now - start) / (1000*60*60*24)) + 1;
+        return Math.max(1, Math.min(diff, TOTAL_DAYS));
+      }
+
+      function isValidDaysData(v) { return Array.isArray(v) && v.length === TOTAL_DAYS; }
+
+      function migrateDay(d) {
+        return {
+          ...d,
+          timeBlocks: d.timeBlocks || [],
+          habitsDone: d.habitsDone || {},
+          targets: (d.targets||[]).map(t => ({ ...t, priority: t.priority||"medium" })),
+        };
+      }
+
+      async function gStore(key) {
+        try { if (window.storage?.get) { const r=await window.storage.get(key); if(r?.value) return JSON.parse(r.value); } } catch{}
+        try { const r=localStorage.getItem(key); if(r) return JSON.parse(r); } catch{}
+        return null;
+      }
+      async function sStore(key, val) {
+        try { if (window.storage?.set) await window.storage.set(key, JSON.stringify(val)); } catch{}
+        try { localStorage.setItem(key, JSON.stringify(val)); } catch{}
+      }
+
+      async function loadDays() {
+        const d = await gStore(STORAGE_KEY);
+        if (d && isValidDaysData(d)) return d.map(migrateDay);
         return null;
       }
 
-      async function saveStoredDays(days) {
-        try {
-          if (typeof window !== "undefined" && window.storage?.set) {
-            await window.storage.set(STORAGE_KEY, JSON.stringify(days));
-          }
-        } catch {}
-
-        try {
-          if (typeof window !== "undefined" && window.localStorage) {
-            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(days));
-          }
-        } catch {}
-      }
-
       function generateDays() {
-        return Array.from({ length: TOTAL_DAYS }, (_, i) => {
-          const d = new Date(START_DATE);
-          d.setDate(d.getDate() + i);
-          return {
-            id: i + 1,
-            day: i + 1,
-            date: d.toISOString().split("T")[0],
-            targets: [],
-            tomorrowTargets: "",
-            completed: false,
-          };
+        return Array.from({length:TOTAL_DAYS},(_,i)=>{
+          const d=new Date(START_DATE); d.setDate(d.getDate()+i);
+          return { id:i+1, day:i+1, date:d.toISOString().split("T")[0],
+            targets:[], tomorrowTargets:"", completed:false, timeBlocks:[], habitsDone:{} };
         });
       }
 
-      function getTodayStr() {
-        return new Date().toISOString().split("T")[0];
+      function calcStats(days, pomXP=0) {
+        const done    = days.filter(d=>d.completed);
+        const dayXP   = done.length * 10;
+        const taskXP  = days.reduce((s,d)=>s+(d.targets||[]).filter(t=>t.done).length, 0);
+        const habitXP = days.reduce((s,d)=>s+Object.values(d.habitsDone||{}).filter(Boolean).length*2,0);
+        const blockXP = days.reduce((s,d)=>s+(d.timeBlocks||[]).filter(b=>b.done).length*2,0);
+        const totalXP = dayXP + taskXP + habitXP + blockXP + pomXP;
+        const level   = Math.floor(totalXP/100)+1;
+        const xpInLvl = totalXP%100;
+        const today   = getTodayStr();
+        const sorted  = [...days].filter(d=>d.date<=today).sort((a,b)=>b.date.localeCompare(a.date));
+        let streak=0; for(const d of sorted){ if(d.completed) streak++; else break; }
+        const pct = Math.round((done.length/TOTAL_DAYS)*100);
+        return {totalXP,level,xpInLvl,streak,totalCompleted:done.length,pct};
       }
 
-      function calcStats(days) {
-        const completedDays = days.filter((d) => d.completed);
-        const totalXP = completedDays.length * 10;
-        const level = Math.floor(totalXP / 50) + 1;
-        const xpInLevel = totalXP % 50;
-        const today = getTodayStr();
-        const sorted = [...days]
-          .filter((d) => d.date <= today)
-          .sort((a, b) => b.date.localeCompare(a.date));
-        let streak = 0;
-        for (const d of sorted) {
-          if (d.completed) streak++;
-          else break;
-        }
-        const totalCompleted = completedDays.length;
-        const pct = Math.round((totalCompleted / TOTAL_DAYS) * 100);
-        return { totalXP, level, xpInLevel, streak, totalCompleted, pct };
-      }
+      function getTodayQuote() { return QUOTES[new Date().getDay() % QUOTES.length]; }
 
-      function formatDate(dateStr) {
-        const d = new Date(dateStr + "T00:00:00");
-        return d.toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-        });
-      }
-
-      const LEVEL_TITLES = [
-        "Recruit",
-        "Apprentice",
-        "Warrior",
-        "Knight",
-        "Champion",
-        "Hero",
-        "Legend",
-        "Master",
-        "Grandmaster",
-        "Mythic",
-      ];
-
-      function getLevelTitle(level) {
+      // ── CONFETTI ──────────────────────────────────────────────────
+      function ConfettiBlast({active}) {
+        if (!active) return null;
+        const COLORS = ["#f59e0b","#34d399","#60a5fa","#a78bfa","#fb923c","#f472b6","#ffffff"];
+        const particles = Array.from({length:55},(_,i)=>({
+          id:i, left: Math.random()*100,
+          color: COLORS[i%COLORS.length],
+          delay: Math.random()*0.9,
+          dur: 1.3 + Math.random()*1.1,
+          w: 5+Math.random()*9, h: 5+Math.random()*9,
+          round: Math.random()>0.4,
+          skew: Math.random()*30-15,
+        }));
         return (
-          LEVEL_TITLES[Math.min(level - 1, LEVEL_TITLES.length - 1)] ||
-          "Ascended"
+          <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:9999,overflow:"hidden"}}>
+            {particles.map(p=>(
+              <div key={p.id} style={{
+                position:"absolute", left:`${p.left}%`, top:"-12px",
+                width:p.w, height:p.h, background:p.color,
+                borderRadius: p.round?"50%":"2px",
+                transform:`skew(${p.skew}deg)`,
+                animation:`cfall ${p.dur}s ${p.delay}s ease-in forwards`,
+              }}/>
+            ))}
+          </div>
         );
       }
 
-      function downloadJson(filename, data) {
-        if (typeof window === "undefined") return;
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
+      // ── XP FLASH ─────────────────────────────────────────────────
+      function XPFlash({xp,visible,emoji="⚡"}) {
+        if (!visible) return null;
+        return (
+          <div style={{
+            position:"fixed",top:20,right:20,zIndex:9998,
+            background:"linear-gradient(135deg,#f59e0b,#fbbf24)",color:"#000",
+            fontFamily:"'Orbitron',monospace",fontSize:18,fontWeight:900,
+            padding:"10px 20px",borderRadius:10,letterSpacing:1,
+            animation:"xpflash 1.6s ease forwards",
+            boxShadow:"0 4px 30px rgba(245,158,11,.5)",
+          }}>
+            +{xp} XP {emoji}
+          </div>
+        );
       }
 
-      function App() {
-        const [days, setDays] = useState([]);
-        const [view, setView] = useState("today");
-        const [loading, setLoading] = useState(true);
-        const [saveStatus, setSaveStatus] = useState("");
-        const today = getTodayStr();
+      // ── POMODORO WIDGET ──────────────────────────────────────────
+      function PomodoroWidget({onXPEarned,onConfetti}) {
+        const DURATIONS = {work:25*60, break:5*60, longbreak:15*60};
+        const [displayTime, setDisplayTime]         = useState(25*60);
+        const [displaySessions, setDisplaySessions] = useState(0);
+        const [active, setActive]                   = useState(false);
+        const [minimized, setMinimized]             = useState(false);
+        const [displayMode, setDisplayMode]         = useState("work");
+        const ref   = useRef({mode:"work",timeLeft:25*60,sessions:0});
+        const ivRef = useRef(null);
 
-        useEffect(() => {
-          async function load() {
-            const stored = await loadStoredDays();
-            if (stored) setDays(stored);
-            else setDays(generateDays());
-            setLoading(false);
-          }
-          load();
-        }, []);
+        useEffect(()=>()=>clearInterval(ivRef.current),[]);
 
-        useEffect(() => {
-          if (!loading && days.length > 0) saveStoredDays(days);
-        }, [days, loading]);
-
-        const handleExportBackup = () => {
-          const stamp = getTodayStr();
-          downloadJson(`mission-tracker-backup-${stamp}.json`, days);
-          setSaveStatus("Backup downloaded. Keep this file safe.");
-        };
-
-        const handleImportBackup = async (event) => {
-          const file = event.target.files && event.target.files[0];
-          event.target.value = "";
-          if (!file) return;
-
-          try {
-            const text = await file.text();
-            const parsed = JSON.parse(text);
-            if (!isValidDaysData(parsed)) {
-              setSaveStatus(
-                "Invalid backup file. Please select a full 150-day backup.",
-              );
-              return;
+        const startTimer = () => {
+          clearInterval(ivRef.current);
+          setActive(true);
+          ivRef.current = setInterval(()=>{
+            ref.current.timeLeft--;
+            setDisplayTime(ref.current.timeLeft);
+            if (ref.current.timeLeft <= 0) {
+              clearInterval(ivRef.current);
+              setActive(false);
+              if (ref.current.mode === "work") {
+                ref.current.sessions++;
+                setDisplaySessions(ref.current.sessions);
+                onXPEarned(5);
+                onConfetti();
+                const next = ref.current.sessions%4===0 ? "longbreak" : "break";
+                ref.current.mode = next;
+                ref.current.timeLeft = DURATIONS[next];
+                setDisplayMode(next);
+                setDisplayTime(DURATIONS[next]);
+              } else {
+                ref.current.mode = "work";
+                ref.current.timeLeft = DURATIONS.work;
+                setDisplayMode("work");
+                setDisplayTime(DURATIONS.work);
+              }
             }
-            setDays(parsed);
-            setSaveStatus("Backup restored successfully.");
-          } catch {
-            setSaveStatus(
-              "Could not read this file. Please choose a valid JSON backup.",
-            );
-          }
+          },1000);
         };
 
-        const updateDay = (id, updates) =>
-          setDays((prev) =>
-            prev.map((d) => (d.id === id ? { ...d, ...updates } : d)),
-          );
-        const toggleCompleted = (id) =>
-          setDays((prev) =>
-            prev.map((d) =>
-              d.id === id ? { ...d, completed: !d.completed } : d,
-            ),
-          );
-
-        const addTarget = (dayId, text) => {
-          if (!text.trim()) return;
-          setDays((prev) =>
-            prev.map((d) =>
-              d.id === dayId
-                ? {
-                    ...d,
-                    targets: [
-                      ...d.targets,
-                      { id: Date.now(), text: text.trim(), done: false },
-                    ],
-                  }
-                : d,
-            ),
-          );
+        const pause  = () => { clearInterval(ivRef.current); setActive(false); };
+        const toggle = () => { active ? pause() : startTimer(); };
+        const reset  = () => {
+          clearInterval(ivRef.current); setActive(false);
+          ref.current.timeLeft = DURATIONS[ref.current.mode];
+          setDisplayTime(DURATIONS[ref.current.mode]);
+        };
+        const switchMode = m => {
+          clearInterval(ivRef.current); setActive(false);
+          ref.current.mode = m; ref.current.timeLeft = DURATIONS[m];
+          setDisplayMode(m); setDisplayTime(DURATIONS[m]);
         };
 
-        const toggleTarget = (dayId, targetId) =>
-          setDays((prev) =>
-            prev.map((d) =>
-              d.id === dayId
-                ? {
-                    ...d,
-                    targets: d.targets.map((t) =>
-                      t.id === targetId ? { ...t, done: !t.done } : t,
-                    ),
-                  }
-                : d,
-            ),
-          );
+        const pct = 1 - displayTime / DURATIONS[displayMode];
+        const R = 38, C = 2*Math.PI*R;
+        const offset = C*(1-pct);
+        const MC = {work:"#f59e0b",break:"#34d399",longbreak:"#60a5fa"};
+        const mc = MC[displayMode];
+        const modeLabel = displayMode==="work"?"🎯 FOCUS":displayMode==="break"?"☕ BREAK":"🌙 LONG BREAK";
 
-        const removeTarget = (dayId, targetId) =>
-          setDays((prev) =>
-            prev.map((d) =>
-              d.id === dayId
-                ? { ...d, targets: d.targets.filter((t) => t.id !== targetId) }
-                : d,
-            ),
-          );
-
-        const getFiltered = () => {
-          if (view === "today") return days.filter((d) => d.date === today);
-          if (view === "upcoming")
-            return days.filter((d) => d.date >= today).slice(0, 10);
-          if (view === "completed") return days.filter((d) => d.completed);
-          return days;
-        };
-
-        const filtered = getFiltered();
-
-        if (loading) {
-          return (
-            <div
-              style={{
-                background: "#08101e",
-                minHeight: "100vh",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <div
-                style={{
-                  color: "#f59e0b",
-                  fontFamily: "monospace",
-                  fontSize: 18,
-                  letterSpacing: 2,
-                }}
-              >
-                LOADING MISSION DATA...
-              </div>
-            </div>
-          );
-        }
-
-        const stats = calcStats(days);
+        if (minimized) return (
+          <div onClick={()=>setMinimized(false)} style={{
+            position:"fixed",bottom:24,right:24,zIndex:1000,background:"#0d1628",
+            border:`1px solid ${mc}50`,borderRadius:14,padding:"10px 18px",
+            cursor:"pointer",display:"flex",alignItems:"center",gap:10,
+            boxShadow:`0 4px 24px rgba(0,0,0,.6), 0 0 0 1px ${mc}20`,
+          }}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:active?mc:"#374151",animation:active?"pulse 1s infinite":"none"}}/>
+            <span style={{fontFamily:"'Orbitron',monospace",fontSize:16,color:mc,fontWeight:700}}>{formatTime(displayTime)}</span>
+            {displaySessions > 0 && <span style={{fontSize:11,color:"#4b5563"}}>🍅×{displaySessions}</span>}
+          </div>
+        );
 
         return (
-          <div
-            style={{
-              fontFamily: "'Rajdhani', 'Trebuchet MS', sans-serif",
-              background: "#08101e",
-              minHeight: "100vh",
-              color: "#e2e8f0",
-            }}
-          >
-            <style>{`
-              @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap');
-              *{box-sizing:border-box;margin:0;padding:0}
-              ::-webkit-scrollbar{width:5px}
-              ::-webkit-scrollbar-track{background:transparent}
-              ::-webkit-scrollbar-thumb{background:#1e2a3a;border-radius:9px}
-              .card{transition:transform .2s,box-shadow .2s}
-              .card:hover{transform:translateY(-3px);box-shadow:0 8px 32px rgba(0,0,0,.4)}
-              .tab{cursor:pointer;transition:all .15s;border:none}
-              .tab:hover{opacity:.85}
-              .cbtn{cursor:pointer;transition:all .15s;border:none}
-              .cbtn:hover{filter:brightness(1.15);transform:scale(1.02)}
-              .cbtn:active{transform:scale(.98)}
-              .xfill{transition:width .6s ease}
-              .delbtn{opacity:0;transition:opacity .15s;cursor:pointer;background:none;border:none;color:#ef4444;font-size:16px;line-height:1;padding:0 2px}
-              .trow:hover .delbtn{opacity:1}
-              .addinput{background:transparent;border:none;outline:none;color:#94a3b8;font-size:13px;flex:1;font-family:inherit}
-              .addinput::placeholder{color:#2d3748}
-              .taddinput{background:transparent;border:none;outline:none;color:#94a3b8;font-size:13px;width:100%;font-family:inherit;resize:none}
-              .taddinput::placeholder{color:#2d3748}
-              .taddinput:focus{color:#e2e8f0}
-              input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#f59e0b;flex-shrink:0}
-            `}</style>
-
-            <div
-              style={{
-                background: "linear-gradient(180deg,#0b1525 0%,#08101e 100%)",
-                borderBottom: "1px solid rgba(245,158,11,.15)",
-                padding: "20px 20px 16px",
-              }}
-            >
-              <div style={{ maxWidth: 960, margin: "0 auto" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    marginBottom: 18,
-                  }}
-                >
-                  <div>
-                    <h1
-                      style={{
-                        fontFamily: "'Orbitron',monospace",
-                        fontSize: 20,
-                        fontWeight: 900,
-                        color: "#f59e0b",
-                        letterSpacing: 1.5,
-                      }}
-                    >
-                      Daily Mission Tracker
-                    </h1>
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "#475569",
-                        marginTop: 4,
-                        letterSpacing: 0.5,
-                      }}
-                    >
-                      150-Day Challenge · Apr 11 – Sep 07, 2026
-                    </p>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div
-                      style={{
-                        fontFamily: "'Orbitron',monospace",
-                        fontSize: 13,
-                        color: "#f59e0b",
-                      }}
-                    >
-                      {getLevelTitle(stats.level).toUpperCase()}
-                    </div>
-                    <div
-                      style={{ fontSize: 11, color: "#475569", marginTop: 2 }}
-                    >
-                      {stats.totalCompleted}/{TOTAL_DAYS} days · {stats.pct}%
-                      done
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(4,1fr)",
-                    gap: 10,
-                    marginBottom: 14,
-                  }}
-                >
-                  {[
-                    {
-                      label: "LEVEL",
-                      value: stats.level,
-                      color: "#f59e0b",
-                      bg: "rgba(245,158,11,.1)",
-                      border: "rgba(245,158,11,.25)",
-                    },
-                    {
-                      label: "TOTAL XP",
-                      value: stats.totalXP,
-                      color: "#a78bfa",
-                      bg: "rgba(139,92,246,.1)",
-                      border: "rgba(139,92,246,.25)",
-                    },
-                    {
-                      label: "STREAK",
-                      value: stats.streak,
-                      color: "#fb923c",
-                      bg: "rgba(251,146,60,.1)",
-                      border: "rgba(251,146,60,.25)",
-                    },
-                    {
-                      label: "WINS",
-                      value: stats.totalCompleted,
-                      color: "#34d399",
-                      bg: "rgba(52,211,153,.1)",
-                      border: "rgba(52,211,153,.25)",
-                    },
-                  ].map((s) => (
-                    <div
-                      key={s.label}
-                      style={{
-                        background: s.bg,
-                        border: `1px solid ${s.border}`,
-                        borderRadius: 10,
-                        padding: "10px 14px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 9,
-                          color: s.color,
-                          letterSpacing: 1,
-                          fontWeight: 700,
-                          marginBottom: 5,
-                        }}
-                      >
-                        {s.label}
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: "'Orbitron',monospace",
-                          fontSize: 24,
-                          fontWeight: 700,
-                          color: s.color,
-                          lineHeight: 1,
-                        }}
-                      >
-                        {s.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginBottom: 5,
-                    }}
-                  >
-                    <span style={{ fontSize: 11, color: "#475569" }}>
-                      XP Progress — Level {stats.level} to {stats.level + 1}
-                    </span>
-                    <span style={{ fontSize: 11, color: "#94a3b8" }}>
-                      {stats.xpInLevel} / 50 XP
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      background: "rgba(255,255,255,.06)",
-                      borderRadius: 999,
-                      height: 7,
-                      overflow: "hidden",
-                      position: "relative",
-                    }}
-                  >
-                    <div
-                      className="xfill"
-                      style={{
-                        height: "100%",
-                        width: `${(stats.xpInLevel / 50) * 100}%`,
-                        background: "linear-gradient(90deg,#f59e0b,#fbbf24)",
-                        borderRadius: 999,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 12,
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <button
-                    className="cbtn"
-                    onClick={handleExportBackup}
-                    style={{
-                      background: "rgba(59,130,246,.14)",
-                      border: "1px solid rgba(59,130,246,.35)",
-                      color: "#93c5fd",
-                      borderRadius: 8,
-                      padding: "6px 10px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      fontFamily: "inherit",
-                    }}
-                  >
-                    Download Backup
-                  </button>
-                  <label
-                    className="cbtn"
-                    style={{
-                      background: "rgba(16,185,129,.14)",
-                      border: "1px solid rgba(16,185,129,.35)",
-                      color: "#6ee7b7",
-                      borderRadius: 8,
-                      padding: "6px 10px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      fontFamily: "inherit",
-                      display: "inline-flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    Restore Backup
-                    <input
-                      type="file"
-                      accept="application/json"
-                      onChange={handleImportBackup}
-                      style={{ display: "none" }}
-                    />
-                  </label>
-                  <span style={{ fontSize: 11, color: "#64748b" }}>
-                    {saveStatus || "Data auto-saves in this browser."}
-                  </span>
-                </div>
+          <div style={{
+            position:"fixed",bottom:24,right:24,zIndex:1000,background:"#0b1525",
+            border:`1px solid ${mc}30`,borderRadius:20,padding:20,width:210,
+            boxShadow:`0 12px 40px rgba(0,0,0,.7),0 0 60px ${mc}18`,
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <span style={{fontSize:11,letterSpacing:1.5,color:mc,fontWeight:800}}>{modeLabel}</span>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                {displaySessions>0 && <span style={{fontSize:11,color:"#4b5563"}}>🍅 {displaySessions}</span>}
+                <button onClick={()=>setMinimized(true)} style={{background:"none",border:"none",color:"#4b5563",cursor:"pointer",fontSize:20,lineHeight:1}}>−</button>
               </div>
             </div>
-
-            <div
-              style={{
-                maxWidth: 960,
-                margin: "0 auto",
-                padding: "14px 20px 0",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  gap: 6,
-                  background: "rgba(255,255,255,.03)",
-                  borderRadius: 10,
-                  padding: 4,
-                  border: "1px solid rgba(255,255,255,.05)",
-                }}
-              >
-                {[
-                  { id: "today", label: "Today" },
-                  { id: "upcoming", label: "Upcoming" },
-                  { id: "all", label: "All 150 Days" },
-                  { id: "completed", label: "Completed" },
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    className="tab"
-                    onClick={() => setView(t.id)}
-                    style={{
-                      flex: 1,
-                      padding: "8px 10px",
-                      borderRadius: 7,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      fontFamily: "inherit",
-                      background:
-                        view === t.id ? "rgba(245,158,11,.15)" : "transparent",
-                      color: view === t.id ? "#f59e0b" : "#4b5563",
-                      border:
-                        view === t.id
-                          ? "1px solid rgba(245,158,11,.3)"
-                          : "1px solid transparent",
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "#374151",
-                  marginTop: 10,
-                  marginBottom: 2,
-                  paddingLeft: 2,
-                }}
-              >
-                {view === "today" && `Focus on today — ${formatDate(today)}`}
-                {view === "upcoming" && "Your next 10 missions"}
-                {view === "all" &&
-                  `Full 150-day journey (${stats.totalCompleted} complete, ${TOTAL_DAYS - stats.totalCompleted} remaining)`}
-                {view === "completed" &&
-                  `Hall of Fame — ${stats.totalCompleted} missions conquered`}
+            <div style={{position:"relative",width:100,height:100,margin:"0 auto 14px"}}>
+              <svg width={100} height={100} style={{transform:"rotate(-90deg)"}}>
+                <circle cx={50} cy={50} r={R} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={7}/>
+                <circle cx={50} cy={50} r={R} fill="none" stroke={mc} strokeWidth={7}
+                  strokeDasharray={C} strokeDashoffset={offset} strokeLinecap="round"
+                  style={{transition:active?"stroke-dashoffset 1s linear":"none"}}/>
+              </svg>
+              <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <span style={{fontFamily:"'Orbitron',monospace",fontSize:17,fontWeight:700,color:mc}}>{formatTime(displayTime)}</span>
               </div>
             </div>
-
-            <div
-              style={{
-                maxWidth: 960,
-                margin: "0 auto",
-                padding: "10px 20px 40px",
-              }}
-            >
-              {filtered.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: "center",
-                    padding: "80px 20px",
-                    color: "#2d3748",
-                  }}
-                >
-                  <div style={{ fontSize: 32, marginBottom: 14 }}>
-                    {view === "completed" ? "No wins yet" : "Nothing here"}
-                  </div>
-                </div>
-              ) : (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))",
-                    gap: 14,
-                    marginTop: 10,
-                  }}
-                >
-                  {filtered.map((day) => (
-                    <DayCard
-                      key={day.id}
-                      day={day}
-                      isToday={day.date === today}
-                      isPast={day.date < today}
-                      onToggleCompleted={() => toggleCompleted(day.id)}
-                      onAddTarget={(t) => addTarget(day.id, t)}
-                      onToggleTarget={(tid) => toggleTarget(day.id, tid)}
-                      onRemoveTarget={(tid) => removeTarget(day.id, tid)}
-                      onUpdateTomorrow={(t) =>
-                        updateDay(day.id, { tomorrowTargets: t })
-                      }
-                    />
-                  ))}
-                </div>
-              )}
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <button onClick={toggle} style={{
+                flex:1,padding:"10px 0",borderRadius:10,border:`1px solid ${mc}40`,fontFamily:"inherit",
+                background:active?`${mc}25`:"rgba(255,255,255,.05)",color:mc,cursor:"pointer",fontSize:14,fontWeight:800,
+              }}>{active?"⏸ Pause":"▶ Start"}</button>
+              <button onClick={reset} style={{
+                padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,255,255,.08)",
+                background:"rgba(255,255,255,.03)",color:"#4b5563",cursor:"pointer",fontSize:16,
+              }}>↺</button>
+            </div>
+            <div style={{display:"flex",gap:5}}>
+              {[["work","25m"],["break","5m"],["longbreak","15m"]].map(([m,lbl])=>(
+                <button key={m} onClick={()=>switchMode(m)} style={{
+                  flex:1,padding:"5px 3px",borderRadius:7,border:"none",fontFamily:"inherit",
+                  background:displayMode===m?`${MC[m]}20`:"transparent",
+                  color:displayMode===m?MC[m]:"#374151",cursor:"pointer",fontSize:10,fontWeight:700,
+                }}>{lbl}</button>
+              ))}
             </div>
           </div>
         );
       }
 
-      function DayCard({
-        day,
-        isToday,
-        isPast,
-        onToggleCompleted,
-        onAddTarget,
-        onToggleTarget,
-        onRemoveTarget,
-        onUpdateTomorrow,
-      }) {
-        const [newText, setNewText] = useState("");
+      // ── HABIT SETUP MODAL ────────────────────────────────────────
+      function HabitSetupModal({habits,onSave,onClose}) {
+        const [list,setList]   = useState(habits);
+        const [name,setName]   = useState("");
+        const [emoji,setEmoji] = useState("⭐");
 
-        const border = day.completed
-          ? "rgba(52,211,153,.45)"
-          : isToday
-            ? "rgba(245,158,11,.5)"
-            : isPast && !day.completed
-              ? "rgba(239,68,68,.2)"
-              : "rgba(255,255,255,.07)";
-
-        const glow = day.completed
-          ? "0 0 0 1px rgba(52,211,153,.1)"
-          : isToday
-            ? "0 0 0 1px rgba(245,158,11,.1)"
-            : "none";
-
-        const headerAccent = day.completed
-          ? "#34d399"
-          : isToday
-            ? "#f59e0b"
-            : isPast
-              ? "#ef4444"
-              : "#4b5563";
-
-        const doneCount = day.targets.filter((t) => t.done).length;
-        const totalTargets = day.targets.length;
-
-        const handleKeyDown = (e) => {
-          if (e.key === "Enter" && newText.trim()) {
-            onAddTarget(newText.trim());
-            setNewText("");
-          }
+        const add = () => {
+          if (!name.trim()) return;
+          setList(p=>[...p,{id:Date.now().toString(),name:name.trim(),emoji}]);
+          setName("");
         };
 
         return (
-          <div
-            className="card"
-            style={{
-              background: "#0d1628",
-              border: `1px solid ${border}`,
-              borderRadius: 12,
-              overflow: "hidden",
-              boxShadow: glow,
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <div
-              style={{
-                height: 3,
-                background: day.completed
-                  ? "#34d399"
-                  : isToday
-                    ? "#f59e0b"
-                    : isPast
-                      ? "#ef444430"
-                      : "#ffffff0a",
-              }}
-            />
-
-            <div
-              style={{
-                padding: "12px 14px",
-                borderBottom: `1px solid rgba(255,255,255,.05)`,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    marginBottom: 3,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: "'Orbitron',monospace",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: headerAccent,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    DAY {day.day}
-                  </span>
-                  {isToday && (
-                    <span
-                      style={{
-                        background: "rgba(245,158,11,.2)",
-                        color: "#f59e0b",
-                        fontSize: 9,
-                        padding: "2px 7px",
-                        borderRadius: 999,
-                        fontWeight: 700,
-                      }}
-                    >
-                      TODAY
-                    </span>
-                  )}
-                  {day.completed && (
-                    <span
-                      style={{
-                        background: "rgba(52,211,153,.2)",
-                        color: "#34d399",
-                        fontSize: 9,
-                        padding: "2px 7px",
-                        borderRadius: 999,
-                        fontWeight: 700,
-                      }}
-                    >
-                      DONE
-                    </span>
-                  )}
-                  {isPast && !day.completed && !isToday && (
-                    <span
-                      style={{
-                        background: "rgba(239,68,68,.15)",
-                        color: "#f87171",
-                        fontSize: 9,
-                        padding: "2px 7px",
-                        borderRadius: 999,
-                        fontWeight: 700,
-                      }}
-                    >
-                      MISSED
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 12, color: "#4b5563" }}>
-                  {formatDate(day.date)}
-                </div>
+          <div style={{position:"fixed",inset:0,zIndex:2000,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{background:"#0d1628",border:"1px solid rgba(245,158,11,.25)",borderRadius:20,padding:28,width:400,maxWidth:"92vw"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+                <span style={{fontFamily:"'Orbitron',monospace",fontSize:14,color:"#f59e0b",letterSpacing:1}}>🔮 DAILY HABITS</span>
+                <button onClick={onClose} style={{background:"none",border:"none",color:"#4b5563",cursor:"pointer",fontSize:24}}>×</button>
               </div>
-
-              <div style={{ textAlign: "right" }}>
-                <div
-                  style={{
-                    fontSize: 9,
-                    color: "#374151",
-                    letterSpacing: 1,
-                    marginBottom: 2,
-                  }}
-                >
-                  XP REWARD
+              <p style={{fontSize:12,color:"#475569",marginBottom:16}}>Each habit completed earns +2 XP · Check them off in Today's card.</p>
+              {list.length===0 && <p style={{fontSize:13,color:"#1e2a3a",fontStyle:"italic",marginBottom:12}}>No habits yet. Add some below!</p>}
+              {list.map(h=>(
+                <div key={h.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"10px 14px",background:"rgba(255,255,255,.03)",borderRadius:10}}>
+                  <span style={{fontSize:20}}>{h.emoji}</span>
+                  <span style={{flex:1,fontSize:14,color:"#94a3b8"}}>{h.name}</span>
+                  <button onClick={()=>setList(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:20}}>×</button>
                 </div>
-                <div
-                  style={{
-                    fontFamily: "'Orbitron',monospace",
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: day.completed ? "#f59e0b" : "#1e2a3a",
-                    lineHeight: 1,
-                  }}
-                >
-                  {day.completed ? "+10" : "10"}
-                </div>
+              ))}
+              <div style={{display:"flex",gap:10,marginTop:16}}>
+                <input value={emoji} onChange={e=>setEmoji(e.target.value)} style={{
+                  width:50,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+                  borderRadius:10,padding:"9px",fontSize:22,color:"#e2e8f0",textAlign:"center",outline:"none",
+                }}/>
+                <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()}
+                  placeholder="e.g. Drink 8 glasses of water" style={{
+                    flex:1,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+                    borderRadius:10,padding:"9px 12px",fontSize:14,color:"#e2e8f0",outline:"none",fontFamily:"inherit",
+                  }}/>
+                <button onClick={add} style={{
+                  padding:"9px 16px",borderRadius:10,border:"1px solid rgba(245,158,11,.3)",
+                  background:"rgba(245,158,11,.12)",color:"#f59e0b",cursor:"pointer",fontSize:18,
+                }}>+</button>
               </div>
+              <button onClick={()=>onSave(list)} style={{
+                width:"100%",marginTop:18,padding:"13px",borderRadius:10,
+                border:"1px solid rgba(52,211,153,.3)",background:"rgba(52,211,153,.12)",
+                color:"#34d399",cursor:"pointer",fontSize:15,fontWeight:700,fontFamily:"inherit",
+              }}>✓ SAVE HABITS</button>
+            </div>
+          </div>
+        );
+      }
+
+      // ── VISUAL TIMELINE ──────────────────────────────────────────
+      // Hours: 6–23 then 0,1,2 → display 6 AM to 2 AM
+      const TIMELINE_HOURS = [6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2];
+
+      function hourLabel(h) {
+        if (h === 0) return "12 AM";
+        if (h === 12) return "12 PM";
+        return h < 12 ? `${h} AM` : `${h-12} PM`;
+      }
+
+      function VisualTimeline({blocks}) {
+        const now = new Date();
+        const nowMins = (() => {
+          const h = now.getHours(), m = now.getMinutes();
+          const adj = h < 6 ? h + 24 : h;
+          return adj * 60 + m;
+        })();
+        const START_M = 6 * 60; // 6 AM in adjusted mins
+        const END_M   = 26 * 60; // 2 AM next day = 26h
+        const SPAN    = END_M - START_M; // 20 hours = 1200 mins
+
+        const pct = m => Math.max(0, Math.min(100, ((m - START_M) / SPAN) * 100));
+
+        return (
+          <div style={{padding:"0 0 4px"}}>
+            <div style={{position:"relative",height:48,background:"rgba(255,255,255,.02)",borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,.04)"}}>
+              {/* Hour tick marks */}
+              {TIMELINE_HOURS.map((h,i) => {
+                const adj = h < 6 ? h + 24 : h;
+                const pos = ((adj * 60 - START_M) / SPAN) * 100;
+                return (
+                  <div key={h} style={{position:"absolute",left:`${pos}%`,top:0,bottom:0,borderLeft:"1px solid rgba(255,255,255,.04)"}}>
+                    {i % 3 === 0 && (
+                      <span style={{position:"absolute",top:2,left:2,fontSize:8,color:"#374151",whiteSpace:"nowrap"}}>{hourLabel(h)}</span>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Blocks */}
+              {blocks.map(b => {
+                const s = timeToMins(b.startTime);
+                const e = timeToMins(b.endTime);
+                const left = pct(s);
+                const width = Math.max(1, pct(e) - left);
+                const cc = BLOCK_CATS.find(c=>c.id===b.category)?.color || "#94a3b8";
+                return (
+                  <div key={b.id} title={`${b.label}: ${to12h(b.startTime)} – ${to12h(b.endTime)}`} style={{
+                    position:"absolute",
+                    left:`${left}%`,
+                    width:`${width}%`,
+                    top:8,bottom:8,
+                    background: b.done ? `${cc}30` : `${cc}80`,
+                    border:`1px solid ${cc}`,
+                    borderRadius:4,
+                    overflow:"hidden",
+                    cursor:"default",
+                    opacity: b.done ? 0.5 : 1,
+                  }}>
+                    <div style={{padding:"1px 3px",fontSize:8,color:"#fff",fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b.label}</div>
+                  </div>
+                );
+              })}
+
+              {/* Current time indicator */}
+              {nowMins >= START_M && nowMins <= END_M && (
+                <div style={{
+                  position:"absolute",left:`${pct(nowMins)}%`,top:0,bottom:0,
+                  width:2,background:"#ef4444",boxShadow:"0 0 6px #ef4444",
+                  zIndex:10,
+                }}>
+                  <div style={{position:"absolute",top:-1,left:-3,width:8,height:8,borderRadius:"50%",background:"#ef4444"}}/>
+                </div>
+              )}
             </div>
 
-            <div style={{ padding: "12px 14px", flex: 1 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: "#4b5563",
-                    letterSpacing: 1,
-                    fontWeight: 700,
-                  }}
-                >
-                  TODAY TARGETS
-                </span>
-                {totalTargets > 0 && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: doneCount === totalTargets ? "#34d399" : "#6b7280",
-                    }}
-                  >
-                    {doneCount}/{totalTargets}
-                  </span>
+            {/* Hour labels row */}
+            <div style={{position:"relative",height:14,marginTop:2}}>
+              {[6,9,12,15,18,21,0].map(h => {
+                const adj = h < 6 ? h + 24 : h;
+                const pos = ((adj * 60 - START_M) / SPAN) * 100;
+                return (
+                  <span key={h} style={{
+                    position:"absolute",left:`${pos}%`,transform:"translateX(-50%)",
+                    fontSize:9,color:"#374151",
+                  }}>{hourLabel(h)}</span>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      // ── TIME BLOCK SECTION ───────────────────────────────────────
+      function TimeBlockSection({blocks,onAdd,onToggle,onRemove}) {
+        const [open,setOpen]   = useState(false);
+        const [start,setStart] = useState("09:00");
+        const [end,setEnd]     = useState("10:00");
+        const [label,setLabel] = useState("");
+        const [cat,setCat]     = useState("deep");
+
+        const submit = () => {
+          if (!label.trim()) return;
+          onAdd({id:Date.now(),startTime:start,endTime:end,label:label.trim(),category:cat,done:false});
+          setLabel(""); setOpen(false);
+        };
+
+        const sorted   = [...blocks].sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
+        const catColor = id => BLOCK_CATS.find(c=>c.id===id)?.color||"#94a3b8";
+        const catLabel = id => BLOCK_CATS.find(c=>c.id===id)?.label||"Other";
+
+        return (
+          <div style={{padding:"14px 16px 16px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:12,color:"#60a5fa",letterSpacing:1.5,fontWeight:800}}>⏱ TIME BLOCKS</span>
+              <button onClick={()=>setOpen(o=>!o)} style={{
+                background:"rgba(96,165,250,.12)",border:"1px solid rgba(96,165,250,.3)",
+                color:"#60a5fa",borderRadius:8,padding:"5px 12px",fontSize:12,
+                cursor:"pointer",fontWeight:700,fontFamily:"inherit",
+              }}>{open?"CANCEL":"+ ADD BLOCK"}</button>
+            </div>
+
+            {/* Visual timeline */}
+            {blocks.length > 0 && (
+              <div style={{marginBottom:12}}>
+                <VisualTimeline blocks={blocks}/>
+              </div>
+            )}
+
+            {sorted.length===0 && !open && (
+              <div style={{fontSize:13,color:"#1e2a3a",fontStyle:"italic",padding:"8px 0"}}>No blocks scheduled. Add your first block!</div>
+            )}
+
+            {sorted.map(b=>{
+              const cc = catColor(b.category);
+              return (
+                <div key={b.id} className="trow" style={{
+                  display:"flex",alignItems:"center",gap:10,marginBottom:8,
+                  padding:"10px 12px",borderRadius:10,
+                  background: b.done?"rgba(255,255,255,.02)": `${cc}0e`,
+                  border:`1px solid ${b.done?"rgba(255,255,255,.05)":cc+"30"}`,
+                  transition:"all .2s",
+                }}>
+                  <input type="checkbox" checked={b.done} onChange={()=>onToggle(b.id)}
+                    style={{accentColor:cc,width:17,height:17,cursor:"pointer",flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,color:b.done?"#374151":"#cbd5e1",textDecoration:b.done?"line-through":"none",fontWeight:700,lineHeight:1.3}}>{b.label}</div>
+                    <div style={{fontSize:12,color:cc,opacity:b.done?.4:.9,marginTop:2,fontWeight:600}}>
+                      {to12h(b.startTime)} → {to12h(b.endTime)} &nbsp;·&nbsp; {catLabel(b.category)}
+                    </div>
+                  </div>
+                  <button className="delbtn" onClick={()=>onRemove(b.id)} style={{flexShrink:0}}>×</button>
+                </div>
+              );
+            })}
+
+            {open && (
+              <div style={{background:"rgba(96,165,250,.06)",border:"1px solid rgba(96,165,250,.18)",borderRadius:12,padding:14,marginTop:8}}>
+                <input value={label} onChange={e=>setLabel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
+                  placeholder="Block label (e.g. Deep Work Session)" style={{
+                    width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+                    borderRadius:8,padding:"9px 11px",fontSize:14,color:"#e2e8f0",outline:"none",fontFamily:"inherit",
+                    marginBottom:10,boxSizing:"border-box",
+                  }}/>
+                <div style={{display:"flex",gap:8,marginBottom:10}}>
+                  {[["START",start,setStart],["END",end,setEnd]].map(([lbl,val,set])=>(
+                    <div key={lbl} style={{flex:1}}>
+                      <div style={{fontSize:10,color:"#4b5563",marginBottom:4,fontWeight:700,letterSpacing:1}}>{lbl}</div>
+                      <input type="time" value={val} onChange={e=>set(e.target.value)} style={{
+                        width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+                        borderRadius:8,padding:"7px 10px",fontSize:14,color:"#e2e8f0",outline:"none",boxSizing:"border-box",
+                      }}/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+                  {BLOCK_CATS.map(c=>(
+                    <button key={c.id} onClick={()=>setCat(c.id)} style={{
+                      padding:"5px 10px",borderRadius:99,fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                      border:`1px solid ${cat===c.id?c.color:"rgba(255,255,255,.08)"}`,
+                      background:cat===c.id?`${c.color}22`:"transparent",
+                      color:cat===c.id?c.color:"#4b5563",fontWeight:700,
+                    }}>{c.label}</button>
+                  ))}
+                </div>
+                <button onClick={submit} style={{
+                  width:"100%",padding:"10px",borderRadius:8,border:"1px solid rgba(96,165,250,.35)",
+                  background:"rgba(96,165,250,.15)",color:"#60a5fa",cursor:"pointer",
+                  fontSize:14,fontWeight:800,fontFamily:"inherit",letterSpacing:.5,
+                }}>ADD TIME BLOCK</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ── DAYS LEFT BANNER ─────────────────────────────────────────
+      function DaysLeftBanner({stats}) {
+        const daysLeft = getDaysLeft();
+        const dayNum   = getDayNumber();
+        const urgencyColor = daysLeft <= 14 ? "#ef4444" : daysLeft <= 30 ? "#fb923c" : daysLeft <= 60 ? "#f59e0b" : "#34d399";
+        const urgencyMsg = daysLeft <= 7 ? "⚠️ FINAL SPRINT" : daysLeft <= 30 ? "🔥 CRUNCH TIME" : daysLeft <= 60 ? "⚡ BUILD MOMENTUM" : "🚀 STAY CONSISTENT";
+
+        return (
+          <div style={{
+            background:`linear-gradient(135deg, rgba(0,0,0,0) 0%, ${urgencyColor}08 100%)`,
+            border:`1px solid ${urgencyColor}30`,
+            borderRadius:16,marginBottom:20,padding:"20px 28px",
+            display:"flex",alignItems:"center",justifyContent:"space-between",
+            position:"relative",overflow:"hidden",
+          }}>
+            {/* background pulse ring */}
+            <div style={{position:"absolute",right:-40,top:-40,width:160,height:160,borderRadius:"50%",border:`2px solid ${urgencyColor}15`,pointerEvents:"none"}}/>
+            <div style={{position:"absolute",right:-20,top:-20,width:100,height:100,borderRadius:"50%",border:`2px solid ${urgencyColor}10`,pointerEvents:"none"}}/>
+
+            <div>
+              <div style={{fontSize:11,color:urgencyColor,letterSpacing:2.5,fontWeight:800,marginBottom:6}}>{urgencyMsg}</div>
+              <div style={{fontFamily:"'Orbitron',monospace",fontSize:42,fontWeight:900,color:urgencyColor,lineHeight:1,letterSpacing:-1}}>
+                {daysLeft}
+              </div>
+              <div style={{fontSize:14,color:"#64748b",marginTop:4,fontWeight:600}}>DAYS LEFT FOR PLACEMENTS</div>
+            </div>
+
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:11,color:"#374151",letterSpacing:2,fontWeight:700,marginBottom:6}}>PROGRESS</div>
+              <div style={{fontFamily:"'Orbitron',monospace",fontSize:28,fontWeight:900,color:"#94a3b8",lineHeight:1}}>
+                DAY <span style={{color:urgencyColor}}>{dayNum}</span>
+              </div>
+              <div style={{fontSize:13,color:"#4b5563",marginTop:4,fontWeight:600}}>of {TOTAL_DAYS} · {stats.pct}% complete</div>
+              <div style={{marginTop:10,background:"rgba(255,255,255,.05)",borderRadius:999,height:6,width:160,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${stats.pct}%`,background:`linear-gradient(90deg,${urgencyColor},${urgencyColor}88)`,borderRadius:999,transition:"width .6s"}}/>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ── TODAY MISSION CONTROL ────────────────────────────────────
+      function TodayMissionControl({day, habits, stats}) {
+        const [now, setNow] = useState(new Date());
+        useEffect(()=>{ const iv=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(iv); },[]);
+
+        const nowMins = (() => {
+          const h = now.getHours(), m = now.getMinutes();
+          return h * 60 + m;
+        })();
+
+        const sorted = [...(day?.timeBlocks||[])].sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
+
+        const currentBlock = sorted.find(b => {
+          const s = timeToMins(b.startTime), e = timeToMins(b.endTime);
+          // convert nowMins to adjusted (hours 0-5 = 24-29)
+          const nowAdj = now.getHours() < 6 ? now.getHours() + 24 : now.getHours();
+          const nowAdjMins = nowAdj * 60 + now.getMinutes();
+          return nowAdjMins >= s && nowAdjMins < e;
+        });
+
+        const nextBlock = sorted.find(b => {
+          const nowAdj = now.getHours() < 6 ? now.getHours() + 24 : now.getHours();
+          const nowAdjMins = nowAdj * 60 + now.getMinutes();
+          return timeToMins(b.startTime) > nowAdjMins;
+        });
+
+        const tasks         = day?.targets || [];
+        const doneCount     = tasks.filter(t=>t.done).length;
+        const totalTasks    = tasks.length;
+        const completionPct = totalTasks > 0 ? Math.round((doneCount/totalTasks)*100) : 0;
+        const hDone         = habits.filter(h=>day?.habitsDone?.[h.id]).length;
+        const bDone         = (day?.timeBlocks||[]).filter(b=>b.done).length;
+        const bTotal        = (day?.timeBlocks||[]).length;
+
+        // Estimate remaining focused hours (blocks not done)
+        const remainingFocusedMins = sorted.filter(b=>!b.done).reduce((s,b)=>{
+          const dur = timeToMins(b.endTime) - timeToMins(b.startTime);
+          return s + Math.max(0,dur);
+        }, 0);
+        const focusedHrsDone = sorted.filter(b=>b.done).reduce((s,b)=>{
+          const dur = timeToMins(b.endTime) - timeToMins(b.startTime);
+          return s + Math.max(0,dur);
+        }, 0);
+
+        const timeStr = now.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+        const dateStr = now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+
+        const criticalTasks = tasks.filter(t=>!t.done && t.priority==="critical");
+        const highTasks     = tasks.filter(t=>!t.done && t.priority==="high");
+        const nextTask      = criticalTasks[0] || highTasks[0] || tasks.find(t=>!t.done);
+
+        return (
+          <div style={{marginBottom:24}}>
+            {/* Live clock + date */}
+            <div style={{textAlign:"center",marginBottom:20}}>
+              <div style={{fontFamily:"'Orbitron',monospace",fontSize:48,fontWeight:900,color:"#f59e0b",letterSpacing:2,lineHeight:1,textShadow:"0 0 40px rgba(245,158,11,.3)"}}>
+                {timeStr}
+              </div>
+              <div style={{fontSize:16,color:"#475569",marginTop:6,letterSpacing:.5}}>{dateStr}</div>
+            </div>
+
+            {/* Current / Next block */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+              <div style={{
+                background: currentBlock ? "rgba(245,158,11,.08)" : "rgba(255,255,255,.02)",
+                border: `1px solid ${currentBlock ? "rgba(245,158,11,.35)" : "rgba(255,255,255,.07)"}`,
+                borderRadius:14,padding:"18px 20px",
+              }}>
+                <div style={{fontSize:10,color:currentBlock?"#f59e0b":"#374151",letterSpacing:2,fontWeight:800,marginBottom:8}}>
+                  {currentBlock ? "🔴 LIVE NOW" : "⚪ CURRENT BLOCK"}
+                </div>
+                {currentBlock ? (
+                  <>
+                    <div style={{fontSize:20,fontWeight:800,color:"#fbbf24",lineHeight:1.2,marginBottom:6}}>{currentBlock.label}</div>
+                    <div style={{fontSize:13,color:"#f59e0b",fontWeight:600}}>{to12h(currentBlock.startTime)} → {to12h(currentBlock.endTime)}</div>
+                  </>
+                ) : (
+                  <div style={{fontSize:15,color:"#2d3748",fontStyle:"italic"}}>No block active right now</div>
                 )}
               </div>
 
-              {totalTargets > 0 && (
-                <div
-                  style={{
-                    background: "rgba(255,255,255,.05)",
-                    borderRadius: 999,
-                    height: 3,
-                    marginBottom: 10,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${(doneCount / totalTargets) * 100}%`,
-                      background: "#34d399",
-                      borderRadius: 999,
-                      transition: "width .3s",
-                    }}
-                  />
-                </div>
-              )}
-
-              {totalTargets === 0 && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#1e2a3a",
-                    fontStyle: "italic",
-                    marginBottom: 6,
-                  }}
-                >
-                  No targets added yet...
-                </div>
-              )}
-
-              {day.targets.map((t) => (
-                <div
-                  key={t.id}
-                  className="trow"
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 8,
-                    marginBottom: 7,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={t.done}
-                    onChange={() => onToggleTarget(t.id)}
-                    style={{ marginTop: 2 }}
-                  />
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: 13,
-                      color: t.done ? "#2d3748" : "#94a3b8",
-                      textDecoration: t.done ? "line-through" : "none",
-                      lineHeight: 1.5,
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {t.text}
-                  </span>
-                  <button
-                    className="delbtn"
-                    onClick={() => onRemoveTarget(t.id)}
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginTop: 8,
-                  padding: "7px 10px",
-                  background: "rgba(255,255,255,.03)",
-                  borderRadius: 7,
-                  border: "1px dashed rgba(255,255,255,.07)",
-                }}
-              >
-                <span
-                  style={{
-                    color: "#2d3748",
-                    fontSize: 16,
-                    lineHeight: 1,
-                    flexShrink: 0,
-                  }}
-                >
-                  +
-                </span>
-                <input
-                  className="addinput"
-                  placeholder="Add target and press Enter..."
-                  value={newText}
-                  onChange={(e) => setNewText(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                />
+              <div style={{
+                background:"rgba(96,165,250,.06)",
+                border:"1px solid rgba(96,165,250,.2)",
+                borderRadius:14,padding:"18px 20px",
+              }}>
+                <div style={{fontSize:10,color:"#60a5fa",letterSpacing:2,fontWeight:800,marginBottom:8}}>⏭ NEXT BLOCK</div>
+                {nextBlock ? (
+                  <>
+                    <div style={{fontSize:20,fontWeight:800,color:"#93c5fd",lineHeight:1.2,marginBottom:6}}>{nextBlock.label}</div>
+                    <div style={{fontSize:13,color:"#60a5fa",fontWeight:600}}>{to12h(nextBlock.startTime)} → {to12h(nextBlock.endTime)}</div>
+                  </>
+                ) : (
+                  <div style={{fontSize:15,color:"#2d3748",fontStyle:"italic"}}>No upcoming blocks</div>
+                )}
               </div>
             </div>
 
-            <div style={{ padding: "0 14px 12px" }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "#4b5563",
-                  letterSpacing: 1,
-                  fontWeight: 700,
-                  marginBottom: 6,
-                }}
-              >
-                TODAY'S PLAN
+            {/* Next task focus */}
+            {nextTask && (
+              <div style={{
+                background:"linear-gradient(135deg,rgba(239,68,68,.08),rgba(251,146,60,.06))",
+                border:"1px solid rgba(239,68,68,.25)",
+                borderRadius:14,padding:"16px 20px",marginBottom:16,
+                display:"flex",alignItems:"center",gap:14,
+              }}>
+                <div style={{fontSize:24,flexShrink:0}}>🎯</div>
+                <div>
+                  <div style={{fontSize:11,color:"#fb923c",letterSpacing:2,fontWeight:800,marginBottom:4}}>HIGHEST PRIORITY TASK</div>
+                  <div style={{fontSize:18,fontWeight:800,color:"#fed7aa",lineHeight:1.3}}>{nextTask.text}</div>
+                </div>
+                <div style={{
+                  marginLeft:"auto",flexShrink:0,
+                  background:"rgba(239,68,68,.15)",border:"1px solid rgba(239,68,68,.3)",
+                  borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:800,color:"#fca5a5",
+                }}>{PRI[nextTask.priority]?.label||"TASK"}</div>
               </div>
-              <textarea
-                className="taddinput"
-                rows={2}
-                placeholder="Write today's plan..."
-                value={day.tomorrowTargets}
-                onChange={(e) => onUpdateTomorrow(e.target.value)}
-                style={{
-                  background: "rgba(255,255,255,.03)",
-                  border: "1px solid rgba(255,255,255,.07)",
-                  borderRadius: 7,
-                  padding: "7px 10px",
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                }}
+            )}
+
+            {/* Metrics row */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+              {[
+                {
+                  icon:"✅",label:"TASKS DONE",
+                  value:`${doneCount}/${totalTasks}`,
+                  sub:`${completionPct}% complete`,
+                  color:"#34d399",
+                  pct: completionPct,
+                },
+                {
+                  icon:"🔥",label:"STREAK",
+                  value:`${stats.streak} days`,
+                  sub: stats.streak>0 ? "Keep it up!" : "Start today!",
+                  color:"#fb923c",
+                  pct: Math.min(100,stats.streak * 5),
+                },
+                {
+                  icon:"⏱",label:"FOCUS DONE",
+                  value:`${Math.round(focusedHrsDone/60*10)/10}h`,
+                  sub:`${Math.round(remainingFocusedMins/60*10)/10}h remaining`,
+                  color:"#60a5fa",
+                  pct: bTotal>0?Math.round((bDone/bTotal)*100):0,
+                },
+                {
+                  icon:"🔮",label:"HABITS",
+                  value:`${hDone}/${habits.length}`,
+                  sub: hDone===habits.length&&habits.length>0?"All done! 🎉":"Keep checking",
+                  color:"#a78bfa",
+                  pct: habits.length>0?Math.round((hDone/habits.length)*100):0,
+                },
+              ].map(m=>(
+                <div key={m.label} style={{
+                  background:"rgba(255,255,255,.02)",
+                  border:`1px solid ${m.color}20`,
+                  borderRadius:14,padding:"16px 14px",
+                }}>
+                  <div style={{fontSize:20,marginBottom:6}}>{m.icon}</div>
+                  <div style={{fontSize:9,color:m.color,letterSpacing:2,fontWeight:800,marginBottom:4}}>{m.label}</div>
+                  <div style={{fontFamily:"'Orbitron',monospace",fontSize:20,fontWeight:900,color:m.color,lineHeight:1,marginBottom:4}}>{m.value}</div>
+                  <div style={{fontSize:11,color:"#374151",marginBottom:8}}>{m.sub}</div>
+                  <div style={{background:"rgba(255,255,255,.04)",borderRadius:999,height:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${m.pct}%`,background:m.color,borderRadius:999,transition:"width .5s"}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      // ── DAY CARD ─────────────────────────────────────────────────
+      function DayCard({day,isToday,isPast,habits,onToggleCompleted,onAddTarget,onToggleTarget,onRemoveTarget,onUpdateTomorrow,onToggleHabit,onAddTimeBlock,onToggleTimeBlock,onRemoveTimeBlock,onXPEarned}) {
+        const [newText,setNewText]   = useState("");
+        const [priority,setPriority] = useState("medium");
+        const [flash,setFlash]       = useState(null);
+
+        const border    = day.completed?"rgba(52,211,153,.5)":isToday?"rgba(245,158,11,.5)":isPast&&!day.completed?"rgba(239,68,68,.2)":"rgba(255,255,255,.08)";
+        const hdrAccent = day.completed?"#34d399":isToday?"#f59e0b":isPast?"#ef4444":"#4b5563";
+
+        const doneCount = day.targets.filter(t=>t.done).length;
+        const totalTgts = day.targets.length;
+        const hDone     = habits.filter(h=>day.habitsDone[h.id]).length;
+        const bDone     = (day.timeBlocks||[]).filter(b=>b.done).length;
+        const bTotal    = (day.timeBlocks||[]).length;
+
+        const focusScore = (() => {
+          let tot=0,dn=0;
+          if(totalTgts>0){tot+=totalTgts;dn+=doneCount;}
+          if(habits.length>0){tot+=habits.length;dn+=hDone;}
+          if(bTotal>0){tot+=bTotal;dn+=bDone;}
+          return tot>0?Math.round((dn/tot)*100):0;
+        })();
+
+        const handleKey = e => {
+          if (e.key==="Enter" && newText.trim()) { onAddTarget(newText.trim(),priority); setNewText(""); }
+        };
+
+        const handleCheck = tid => {
+          const t = day.targets.find(t=>t.id===tid);
+          if (t && !t.done) { setFlash(tid); setTimeout(()=>setFlash(null),600); onXPEarned(1,"⚡"); }
+          onToggleTarget(tid);
+        };
+
+        const sorted = [...day.targets].sort((a,b)=>{
+          const O={critical:0,high:1,medium:2,low:3};
+          if (a.done!==b.done) return a.done?1:-1;
+          return O[a.priority]-O[b.priority];
+        });
+
+        return (
+          <div className="card" style={{
+            background:"#0b1525",
+            border:`1px solid ${border}`,
+            borderRadius:16,overflow:"hidden",
+            boxShadow: isToday ? "0 0 40px rgba(245,158,11,.08)" : "none",
+            display:"flex",flexDirection:"column",
+          }}>
+            {/* Accent bar */}
+            <div style={{height:4,background:day.completed?"linear-gradient(90deg,#34d399,#6ee7b7)":isToday?"linear-gradient(90deg,#f59e0b,#fbbf24)":isPast?"#ef444430":"#ffffff08"}}/>
+
+            {/* Card header */}
+            <div style={{padding:"16px 18px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <span style={{fontFamily:"'Orbitron',monospace",fontSize:13,fontWeight:700,color:hdrAccent,letterSpacing:1}}>DAY {day.day}</span>
+                  {isToday && <span style={{background:"rgba(245,158,11,.2)",color:"#f59e0b",fontSize:10,padding:"3px 9px",borderRadius:999,fontWeight:800}}>TODAY</span>}
+                  {day.completed && <span style={{background:"rgba(52,211,153,.2)",color:"#34d399",fontSize:10,padding:"3px 9px",borderRadius:999,fontWeight:800}}>DONE ✓</span>}
+                  {isPast&&!day.completed&&!isToday && <span style={{background:"rgba(239,68,68,.15)",color:"#f87171",fontSize:10,padding:"3px 9px",borderRadius:999,fontWeight:800}}>MISSED</span>}
+                </div>
+                <div style={{fontSize:14,color:"#4b5563",fontWeight:500}}>{formatDateShort(day.date)}</div>
+              </div>
+              {(isToday||day.completed) && (
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:"#374151",letterSpacing:1,marginBottom:3,fontWeight:700}}>FOCUS SCORE</div>
+                  <div style={{fontFamily:"'Orbitron',monospace",fontSize:26,fontWeight:700,lineHeight:1,
+                    color:focusScore===100?"#34d399":focusScore>60?"#f59e0b":"#ef4444"}}>
+                    {focusScore}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Habits */}
+            {(isToday||day.completed) && habits.length>0 && (
+              <div style={{padding:"14px 18px",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <span style={{fontSize:11,color:"#a78bfa",letterSpacing:1.5,fontWeight:800}}>🔮 HABITS</span>
+                  <span style={{fontSize:12,fontWeight:700,color:hDone===habits.length?"#34d399":"#4b5563"}}>{hDone}/{habits.length}</span>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                  {habits.map(h=>{
+                    const done=day.habitsDone[h.id];
+                    return (
+                      <button key={h.id} onClick={()=>{if(!done)onXPEarned(2,"🔮");onToggleHabit(h.id);}} style={{
+                        padding:"7px 14px",borderRadius:99,cursor:"pointer",fontFamily:"inherit",transition:"all .2s",
+                        background:done?"rgba(52,211,153,.15)":"rgba(255,255,255,.03)",
+                        border:`1px solid ${done?"rgba(52,211,153,.35)":"rgba(255,255,255,.08)"}`,
+                        color:done?"#34d399":"#4b5563",fontSize:13,fontWeight:700,
+                        textDecoration:done?"line-through":"none",
+                      }}>
+                        {h.emoji} {h.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Tasks */}
+            <div style={{padding:"14px 18px",flex:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <span style={{fontSize:11,color:"#4b5563",letterSpacing:1.5,fontWeight:800}}>TODAY'S TARGETS</span>
+                {totalTgts>0 && <span style={{fontSize:13,fontWeight:700,color:doneCount===totalTgts?"#34d399":"#6b7280"}}>{doneCount}/{totalTgts}</span>}
+              </div>
+
+              {totalTgts>0 && (
+                <div style={{background:"rgba(255,255,255,.05)",borderRadius:999,height:5,marginBottom:12,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${(doneCount/totalTgts)*100}%`,
+                    background:doneCount===totalTgts?"linear-gradient(90deg,#34d399,#6ee7b7)":"linear-gradient(90deg,#f59e0b,#fbbf24)",
+                    borderRadius:999,transition:"width .4s"}}/>
+                </div>
+              )}
+
+              {totalTgts===0 && <div style={{fontSize:14,color:"#1e2a3a",fontStyle:"italic",marginBottom:8}}>No targets added yet...</div>}
+
+              {sorted.map(t=>{
+                const pc = PRI[t.priority]||PRI.medium;
+                return (
+                  <div key={t.id} className="trow" style={{
+                    display:"flex",alignItems:"flex-start",gap:10,marginBottom:9,
+                    padding:"9px 12px",borderRadius:10,
+                    background:flash===t.id?"rgba(245,158,11,.14)":t.done?"rgba(255,255,255,.01)":pc.bg,
+                    border:`1px solid ${t.done?"rgba(255,255,255,.05)":pc.color+"28"}`,
+                    transition:"background .4s,border .4s",
+                  }}>
+                    <input type="checkbox" checked={t.done} onChange={()=>handleCheck(t.id)}
+                      style={{marginTop:3,accentColor:pc.color,cursor:"pointer",width:16,height:16,flexShrink:0}}/>
+                    <span style={{flex:1,fontSize:15,color:t.done?"#2d3748":"#cbd5e1",
+                      textDecoration:t.done?"line-through":"none",lineHeight:1.5,wordBreak:"break-word",fontWeight:600}}>
+                      {t.text}
+                    </span>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:pc.color,opacity:t.done?.25:1}} title={pc.label}/>
+                      <button className="delbtn" onClick={()=>onRemoveTarget(t.id)}>×</button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Add task row */}
+              <div style={{display:"flex",alignItems:"center",gap:9,marginTop:10}}>
+                <div style={{display:"flex",gap:5,flexShrink:0}} title="Select priority">
+                  {Object.entries(PRI).map(([key,pc])=>(
+                    <button key={key} onClick={()=>setPriority(key)} title={pc.label} style={{
+                      width:13,height:13,borderRadius:"50%",border:`2px solid ${priority===key?pc.color:"transparent"}`,
+                      background:pc.color,cursor:"pointer",padding:0,flexShrink:0,
+                      boxShadow:priority===key?`0 0 8px ${pc.color}`:"none",transition:"box-shadow .2s",
+                    }}/>
+                  ))}
+                </div>
+                <div style={{flex:1,display:"flex",alignItems:"center",gap:8,padding:"9px 12px",
+                  background:"rgba(255,255,255,.03)",borderRadius:9,border:"1px dashed rgba(255,255,255,.08)"}}>
+                  <span style={{color:"#2d3748",fontSize:17,lineHeight:1,flexShrink:0}}>+</span>
+                  <input className="addinput" placeholder="Add target and press Enter..." value={newText}
+                    onChange={e=>setNewText(e.target.value)} onKeyDown={handleKey}
+                    style={{fontSize:14}}/>
+                </div>
+              </div>
+            </div>
+
+            {/* Time Blocks */}
+            <div style={{borderTop:"1px solid rgba(255,255,255,.04)"}}>
+              <TimeBlockSection
+                blocks={day.timeBlocks||[]}
+                onAdd={b=>onAddTimeBlock(b)}
+                onToggle={bid=>{const b=(day.timeBlocks||[]).find(x=>x.id===bid);if(b&&!b.done)onXPEarned(2,"⏱");onToggleTimeBlock(bid);}}
+                onRemove={bid=>onRemoveTimeBlock(bid)}
               />
             </div>
 
-            <div style={{ padding: "0 14px 14px" }}>
-              <button
-                className="cbtn"
-                onClick={onToggleCompleted}
-                style={{
-                  width: "100%",
-                  padding: "10px",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: 0.5,
-                  fontFamily: "inherit",
-                  background: day.completed
-                    ? "rgba(52,211,153,.12)"
-                    : "rgba(245,158,11,.12)",
-                  color: day.completed ? "#34d399" : "#f59e0b",
-                  border: `1px solid ${day.completed ? "rgba(52,211,153,.3)" : "rgba(245,158,11,.3)"}`,
-                }}
-              >
-                {day.completed
-                  ? "MISSION COMPLETE - UNDO"
-                  : "MARK AS COMPLETE +10 XP"}
+            {/* Today's Plan */}
+            <div style={{padding:"0 18px 14px",borderTop:"1px solid rgba(255,255,255,.04)"}}>
+              <div style={{fontSize:11,color:"#4b5563",letterSpacing:1.5,fontWeight:800,marginBottom:8}}>📝 TODAY'S PLAN</div>
+              <textarea className="taddinput" rows={2} placeholder="Write today's plan or notes..."
+                value={day.tomorrowTargets} onChange={e=>onUpdateTomorrow(e.target.value)}
+                style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:9,padding:"9px 12px",fontSize:14,lineHeight:1.6}}/>
+            </div>
+
+            {/* Mark complete */}
+            <div style={{padding:"0 18px 18px"}}>
+              <button className="cbtn" onClick={onToggleCompleted} style={{
+                width:"100%",padding:"13px",borderRadius:11,fontSize:14,fontWeight:800,
+                letterSpacing:.8,fontFamily:"inherit",
+                background:day.completed?"rgba(52,211,153,.12)":"rgba(245,158,11,.12)",
+                color:day.completed?"#34d399":"#f59e0b",
+                border:`1px solid ${day.completed?"rgba(52,211,153,.35)":"rgba(245,158,11,.35)"}`,
+              }}>
+                {day.completed?"✓ MISSION COMPLETE — UNDO":"⚡ MARK COMPLETE +10 XP"}
               </button>
             </div>
           </div>
         );
       }
 
-      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+      // ── APP ──────────────────────────────────────────────────────
+      function App() {
+        const [days,setDays]                 = useState([]);
+        const [view,setView]                 = useState("today");
+        const [loading,setLoading]           = useState(true);
+        const [saveStatus,setSaveStatus]     = useState("");
+        const [habits,setHabits]             = useState([]);
+        const [showHabitSetup,setHabitSetup] = useState(false);
+        const [confetti,setConfetti]         = useState(false);
+        const [xpFlash,setXpFlash]           = useState({vis:false,xp:0,emoji:"⚡"});
+        const [pomXP,setPomXP]               = useState(0);
+        const today = getTodayStr();
+
+        useEffect(()=>{
+          async function load() {
+            const d = await loadDays();
+            setDays(d||generateDays());
+            const h = await gStore(HABITS_KEY);
+            setHabits(h||[{id:"w",name:"Drink Water (8 glasses)",emoji:"💧"},{id:"e",name:"Exercise / Move",emoji:"🏃"},{id:"r",name:"Read 30 min",emoji:"📚"}]);
+            const px = await gStore(POMO_KEY);
+            if(px) setPomXP(px);
+            setLoading(false);
+          }
+          load();
+        },[]);
+
+        useEffect(()=>{ if(!loading&&days.length>0) sStore(STORAGE_KEY,days); },[days,loading]);
+        useEffect(()=>{ if(!loading) sStore(HABITS_KEY,habits); },[habits,loading]);
+        useEffect(()=>{ if(!loading&&pomXP>0) sStore(POMO_KEY,pomXP); },[pomXP,loading]);
+
+        const fireXP = (xp,emoji="⚡") => {
+          setXpFlash({vis:true,xp,emoji});
+          setTimeout(()=>setXpFlash(p=>({...p,vis:false})),1700);
+        };
+        const fireConfetti = () => { setConfetti(true); setTimeout(()=>setConfetti(false),3200); };
+
+        const handlePomXP = xp => { setPomXP(p=>p+xp); fireXP(xp,"🍅"); fireConfetti(); };
+
+        const toggleCompleted = id => setDays(prev=>prev.map(d=>{
+          if(d.id!==id) return d;
+          if(!d.completed){fireConfetti();fireXP(10,"🏆");}
+          return {...d,completed:!d.completed};
+        }));
+
+        const addTarget    = (id,text,pri) => { if(!text.trim())return; setDays(p=>p.map(d=>d.id===id?{...d,targets:[...d.targets,{id:Date.now(),text:text.trim(),done:false,priority:pri}]}:d)); };
+        const toggleTarget = (id,tid)      => setDays(p=>p.map(d=>d.id===id?{...d,targets:d.targets.map(t=>t.id===tid?{...t,done:!t.done}:t)}:d));
+        const removeTarget = (id,tid)      => setDays(p=>p.map(d=>d.id===id?{...d,targets:d.targets.filter(t=>t.id!==tid)}:d));
+        const toggleHabit  = (id,hid)      => setDays(p=>p.map(d=>d.id===id?{...d,habitsDone:{...d.habitsDone,[hid]:!d.habitsDone[hid]}}:d));
+        const addTimeBlock = (id,b)        => setDays(p=>p.map(d=>d.id===id?{...d,timeBlocks:[...(d.timeBlocks||[]),b]}:d));
+        const toggleBlock  = (id,bid)      => setDays(p=>p.map(d=>d.id===id?{...d,timeBlocks:(d.timeBlocks||[]).map(b=>b.id===bid?{...b,done:!b.done}:b)}:d));
+        const removeBlock  = (id,bid)      => setDays(p=>p.map(d=>d.id===id?{...d,timeBlocks:(d.timeBlocks||[]).filter(b=>b.id!==bid)}:d));
+        const updateDay    = (id,upd)      => setDays(p=>p.map(d=>d.id===id?{...d,...upd}:d));
+
+        const saveHabits = async list => { setHabits(list); await sStore(HABITS_KEY,list); setHabitSetup(false); };
+
+        const exportBackup = () => {
+          const blob=new Blob([JSON.stringify({days,habits,pomXP},null,2)],{type:"application/json"});
+          const url=URL.createObjectURL(blob); const a=document.createElement("a");
+          a.href=url; a.download=`mission-tracker-backup-${today}.json`; a.click(); URL.revokeObjectURL(url);
+          setSaveStatus("Backup downloaded!");
+        };
+
+        const importBackup = async e => {
+          const file=e.target.files?.[0]; e.target.value=""; if(!file)return;
+          try {
+            const parsed=JSON.parse(await file.text());
+            const raw = parsed.days||parsed;
+            if(!isValidDaysData(raw)){setSaveStatus("Invalid backup file.");return;}
+            setDays(raw.map(migrateDay));
+            if(parsed.habits) saveHabits(parsed.habits);
+            if(parsed.pomXP) setPomXP(parsed.pomXP);
+            setSaveStatus("Backup restored!");
+          } catch { setSaveStatus("Could not read file."); }
+        };
+
+        const getFiltered = () => {
+          if(view==="today")     return days.filter(d=>d.date===today);
+          if(view==="upcoming")  return days.filter(d=>d.date>=today).slice(0,10);
+          if(view==="completed") return days.filter(d=>d.completed);
+          return days;
+        };
+
+        if (loading) return (
+          <div style={{background:"#08101e",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
+            <div style={{fontFamily:"'Orbitron',monospace",fontSize:24,color:"#f59e0b",letterSpacing:3,animation:"pulse 1.4s ease infinite"}}>LOADING MISSION DATA</div>
+            <div style={{fontSize:13,color:"#374151",letterSpacing:2}}>INITIALIZING COMMAND CENTER...</div>
+          </div>
+        );
+
+        const stats    = calcStats(days,pomXP);
+        const filtered = getFiltered();
+        const quote    = getTodayQuote();
+        const todayDay = days.find(d=>d.date===today);
+
+        return (
+          <div style={{fontFamily:"'Rajdhani','Trebuchet MS',sans-serif",background:"#08101e",minHeight:"100vh",color:"#e2e8f0"}}>
+            <style>{`
+              @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap');
+              *{box-sizing:border-box;margin:0;padding:0}
+              ::-webkit-scrollbar{width:6px}
+              ::-webkit-scrollbar-track{background:transparent}
+              ::-webkit-scrollbar-thumb{background:#1e2a3a;border-radius:9px}
+              .card{transition:transform .2s,box-shadow .2s}
+              .card:hover{transform:translateY(-2px);box-shadow:0 10px 40px rgba(0,0,0,.5)}
+              .tab{cursor:pointer;transition:all .15s;border:none}
+              .tab:hover{opacity:.85}
+              .cbtn{cursor:pointer;transition:all .15s;border:none}
+              .cbtn:hover{filter:brightness(1.2);transform:scale(1.02)}
+              .cbtn:active{transform:scale(.98)}
+              .xfill{transition:width .6s ease}
+              .delbtn{opacity:0;transition:opacity .15s;cursor:pointer;background:none;border:none;color:#ef4444;font-size:18px;line-height:1;padding:0 3px}
+              .trow:hover .delbtn{opacity:1}
+              .addinput{background:transparent;border:none;outline:none;color:#94a3b8;flex:1;font-family:inherit}
+              .addinput::placeholder{color:#2d3748}
+              .taddinput{background:transparent;border:none;outline:none;color:#94a3b8;width:100%;font-family:inherit;resize:none}
+              .taddinput::placeholder{color:#2d3748}
+              .taddinput:focus{color:#e2e8f0}
+              input[type=checkbox]{cursor:pointer;accent-color:#f59e0b;flex-shrink:0}
+              input[type=time]{color-scheme:dark;font-family:inherit}
+              @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+              @keyframes cfall{0%{transform:translateY(0) rotate(0deg);opacity:1}100%{transform:translateY(102vh) rotate(800deg);opacity:0}}
+              @keyframes xpflash{0%{opacity:0;transform:translateY(12px) scale(.9)}15%{opacity:1;transform:translateY(0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translateY(-18px) scale(.95)}}
+              @keyframes glow{0%,100%{box-shadow:0 0 20px rgba(245,158,11,.1)}50%{box-shadow:0 0 40px rgba(245,158,11,.25)}}
+            `}</style>
+
+            <ConfettiBlast active={confetti}/>
+            <XPFlash xp={xpFlash.xp} visible={xpFlash.vis} emoji={xpFlash.emoji}/>
+
+            {/* ── HEADER ── */}
+            <div style={{background:"linear-gradient(180deg,#0b1525 0%,#08101e 100%)",borderBottom:"1px solid rgba(245,158,11,.12)",padding:"20px 24px 18px"}}>
+              <div style={{maxWidth:1000,margin:"0 auto"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div>
+                    <h1 style={{fontFamily:"'Orbitron',monospace",fontSize:22,fontWeight:900,color:"#f59e0b",letterSpacing:2}}>Daily Mission Tracker</h1>
+                    <p style={{fontSize:12,color:"#374151",marginTop:3,letterSpacing:.5}}>150-Day Placement Prep Challenge · Apr 11 – Sep 07, 2026</p>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontFamily:"'Orbitron',monospace",fontSize:14,color:"#f59e0b",fontWeight:700}}>{getLevelTitle(stats.level).toUpperCase()}</div>
+                    <div style={{fontSize:12,color:"#374151",marginTop:3}}>{stats.totalCompleted}/{TOTAL_DAYS} days · {stats.pct}% done</div>
+                  </div>
+                </div>
+
+                {/* Quote */}
+                <div style={{fontSize:13,color:"#2d3748",fontStyle:"italic",marginBottom:16,paddingLeft:2}}>
+                  "{quote}"
+                </div>
+
+                {/* Stats grid */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
+                  {[
+                    {label:"LEVEL",    value:stats.level,          color:"#f59e0b",bg:"rgba(245,158,11,.1)", border:"rgba(245,158,11,.25)"},
+                    {label:"TOTAL XP", value:stats.totalXP,        color:"#a78bfa",bg:"rgba(139,92,246,.1)",border:"rgba(139,92,246,.25)"},
+                    {label:"STREAK",   value:`${stats.streak}🔥`,  color:"#fb923c",bg:"rgba(251,146,60,.1)", border:"rgba(251,146,60,.25)"},
+                    {label:"WINS",     value:stats.totalCompleted,  color:"#34d399",bg:"rgba(52,211,153,.1)",border:"rgba(52,211,153,.25)"},
+                  ].map(s=>(
+                    <div key={s.label} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:12,padding:"12px 16px"}}>
+                      <div style={{fontSize:10,color:s.color,letterSpacing:1.5,fontWeight:800,marginBottom:6}}>{s.label}</div>
+                      <div style={{fontFamily:"'Orbitron',monospace",fontSize:26,fontWeight:700,color:s.color,lineHeight:1}}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* XP Bar */}
+                <div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                    <span style={{fontSize:12,color:"#475569"}}>XP Progress — Level {stats.level} → {stats.level+1}</span>
+                    <span style={{fontSize:12,color:"#94a3b8",fontWeight:700}}>{stats.xpInLvl} / 100 XP</span>
+                  </div>
+                  <div style={{background:"rgba(255,255,255,.06)",borderRadius:999,height:8,overflow:"hidden"}}>
+                    <div className="xfill" style={{height:"100%",width:`${stats.xpInLvl}%`,background:"linear-gradient(90deg,#f59e0b,#fbbf24)",borderRadius:999}}/>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <button className="cbtn" onClick={()=>setHabitSetup(true)} style={{background:"rgba(167,139,250,.14)",border:"1px solid rgba(167,139,250,.35)",color:"#a78bfa",borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>🔮 Habits Setup</button>
+                  <button className="cbtn" onClick={exportBackup} style={{background:"rgba(59,130,246,.14)",border:"1px solid rgba(59,130,246,.35)",color:"#93c5fd",borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>📥 Backup</button>
+                  <label className="cbtn" style={{background:"rgba(16,185,129,.14)",border:"1px solid rgba(16,185,129,.35)",color:"#6ee7b7",borderRadius:9,padding:"8px 14px",fontSize:13,fontWeight:700,fontFamily:"inherit",display:"inline-flex",alignItems:"center",cursor:"pointer"}}>
+                    📤 Restore<input type="file" accept="application/json" onChange={importBackup} style={{display:"none"}}/>
+                  </label>
+                  {saveStatus && <span style={{fontSize:12,color:"#34d399",fontWeight:600}}>{saveStatus}</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* ── TABS ── */}
+            <div style={{maxWidth:1000,margin:"0 auto",padding:"16px 24px 0"}}>
+              <div style={{display:"flex",gap:6,background:"rgba(255,255,255,.03)",borderRadius:12,padding:5,border:"1px solid rgba(255,255,255,.06)"}}>
+                {[
+                  {id:"today",     label:"⚡ Today"},
+                  {id:"upcoming",  label:"📅 Upcoming"},
+                  {id:"all",       label:"🗓 All 150"},
+                  {id:"completed", label:"🏆 Completed"},
+                ].map(t=>(
+                  <button key={t.id} className="tab" onClick={()=>setView(t.id)} style={{
+                    flex:1,padding:"10px 12px",borderRadius:9,fontSize:14,fontWeight:700,fontFamily:"inherit",
+                    background:view===t.id?"rgba(245,158,11,.15)":"transparent",
+                    color:view===t.id?"#f59e0b":"#4b5563",
+                    border:view===t.id?"1px solid rgba(245,158,11,.35)":"1px solid transparent",
+                    letterSpacing:.3,
+                  }}>{t.label}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── MAIN CONTENT ── */}
+            <div style={{maxWidth:1000,margin:"0 auto",padding:"20px 24px 140px"}}>
+
+              {/* TODAY VIEW: Mission Control */}
+              {view==="today" && todayDay && (
+                <>
+                  {/* Days Left Banner */}
+                  <DaysLeftBanner stats={stats}/>
+
+                  {/* Mission Control Dashboard */}
+                  <div style={{
+                    background:"linear-gradient(135deg,#0b1525 0%,#0d1a30 100%)",
+                    border:"1px solid rgba(245,158,11,.2)",
+                    borderRadius:20,padding:"28px 28px 24px",
+                    marginBottom:20,
+                    boxShadow:"0 0 60px rgba(245,158,11,.05)",
+                    animation:"glow 3s ease infinite",
+                  }}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:22}}>
+                      <div style={{height:3,width:24,background:"#f59e0b",borderRadius:999}}/>
+                      <span style={{fontFamily:"'Orbitron',monospace",fontSize:12,color:"#f59e0b",letterSpacing:2.5,fontWeight:800}}>MISSION CONTROL — TODAY</span>
+                      <div style={{height:3,flex:1,background:"rgba(245,158,11,.1)",borderRadius:999}}/>
+                    </div>
+                    <TodayMissionControl day={todayDay} habits={habits} stats={stats}/>
+                  </div>
+                </>
+              )}
+
+              {/* Card Grid */}
+              {filtered.length===0 ? (
+                <div style={{textAlign:"center",padding:"80px 20px",color:"#2d3748"}}>
+                  <div style={{fontSize:48,marginBottom:16}}>{view==="completed"?"🏆":view==="today"?"😴":"📭"}</div>
+                  <div style={{fontSize:20,fontFamily:"'Orbitron',monospace",letterSpacing:1,color:"#374151"}}>
+                    {view==="completed"?"No wins yet — go conquer today!":"Nothing here yet"}
+                  </div>
+                </div>
+              ) : (
+                <div style={{display:"grid",gridTemplateColumns:view==="today"?"1fr":"repeat(auto-fill,minmax(320px,1fr))",gap:16,marginTop:0}}>
+                  {filtered.map(day=>(
+                    <DayCard key={day.id} day={day}
+                      isToday={day.date===today} isPast={day.date<today}
+                      habits={habits}
+                      onToggleCompleted={()=>toggleCompleted(day.id)}
+                      onAddTarget={(t,p)=>addTarget(day.id,t,p)}
+                      onToggleTarget={tid=>toggleTarget(day.id,tid)}
+                      onRemoveTarget={tid=>removeTarget(day.id,tid)}
+                      onUpdateTomorrow={t=>updateDay(day.id,{tomorrowTargets:t})}
+                      onToggleHabit={hid=>toggleHabit(day.id,hid)}
+                      onAddTimeBlock={b=>addTimeBlock(day.id,b)}
+                      onToggleTimeBlock={bid=>toggleBlock(day.id,bid)}
+                      onRemoveTimeBlock={bid=>removeBlock(day.id,bid)}
+                      onXPEarned={(xp,em)=>fireXP(xp,em)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── POMODORO ── */}
+            <PomodoroWidget onXPEarned={handlePomXP} onConfetti={fireConfetti}/>
+
+            {/* ── HABIT MODAL ── */}
+            {showHabitSetup && <HabitSetupModal habits={habits} onSave={saveHabits} onClose={()=>setHabitSetup(false)}/>}
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
     </script>
   </body>
 </html>
