@@ -1,0 +1,112 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Complete rebuild of index.html into the Placement Preparation Operating System. Replaces the existing 1256-line file with a new comprehensive single-file React app. All existing features (daily tasks, habits, pomodoro, time blocks, XP, streaks, day cards) must be preserved and upgraded. All new features must be added.",
+  "status": "completed",
+  "steps": [
+    "1. CDN SETUP: Keep existing React 18 + Babel standalone CDN links. Add Chart.js CDN (https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js). Add Google Fonts link tag for Orbitron + Rajdhani. Title: 'Placement Prep OS'.",
+
+    "2. CONSTANTS & CONFIG: Keep START_DATE=Apr 11 2026, change END_DATE to 110 days after start (Jul 30 2026), TOTAL_DAYS=110. Keep existing QUOTES array (expand to 20+). Add STUDY_CATEGORIES: [{id:'dsa',label:'DSA',color:'#fb923c',icon:'🧠'},{id:'dsml',label:'DS/ML',color:'#60a5fa',icon:'🤖'},{id:'projects',label:'Projects',color:'#34d399',icon:'💻'},{id:'speaking',label:'Speaking Skills',color:'#a78bfa',icon:'🎤'},{id:'typing',label:'Typing',color:'#fbbf24',icon:'⌨️'}]. Keep existing BLOCK_CATS, PRI, LEVEL_TITLES constants. Add ACHIEVEMENTS array: [{id:'dsa_warrior',label:'DSA Warrior',desc:'20+ hours in DSA',icon:'⚔️',check:(sessions)=>...},{id:'100hr_club',label:'100 Hour Club',desc:'100 total hours studied',icon:'💯',check:...},{id:'7day_streak',label:'7 Day Consistency',desc:'7-day study streak',icon:'🔥',check:...},{id:'deep_work_beast',label:'Deep Work Beast',desc:'4+ hours in one session',icon:'🦁',check:...}].",
+
+    "3. STORAGE KEYS: Keep existing STORAGE_KEY, HABITS_KEY, POMO_KEY. Add: SESSIONS_KEY='ppos-sessions-v1', GOALS_KEY='ppos-goals-v1', ACHIEVEMENTS_KEY='ppos-achievements-v1', ACTIVE_SESSION_KEY='ppos-active-session-v1'.",
+
+    "4. UTILITY FUNCTIONS: Keep all existing utils (getTodayStr, formatDate, formatDateShort, formatTime, to12h, timeToMins, getDaysLeft, getDayNumber, isValidDaysData, migrateDay, gStore, sStore, loadDays, generateDays, calcStats, getTodayQuote). Add: formatDuration(seconds) -> '1h 23m' or '45m', getWeekStart() -> ISO string of Monday of current week, getDateRange(startDate, endDate) -> array of date strings, sumSessionsByCategory(sessions, categoryId, dateFilter) -> total seconds.",
+
+    "5. APP STATE (in App component): Keep all existing state: days, view, loading, habits, showHabitSetup, confetti, xpFlash, pomXP. Add new state: sessions (array of session objects), goals (object keyed by category id), achievements (array of unlocked achievement ids), activeSession (null or {categoryId, startTime, elapsed}), focusModeActive (bool), focusModeCategory (string), activeTab (string: 'dashboard'|'timer'|'sessions'|'analytics'|'heatmap'|'missions'). Sessions persist to SESSIONS_KEY. Goals persist to GOALS_KEY. Achievements persist to ACHIEVEMENTS_KEY. Active session persists to ACTIVE_SESSION_KEY (for crash recovery).",
+
+    "6. SESSION DATA MODEL: Each session = {id: string (Date.now().toString()), categoryId: string, startTime: ISO string, endTime: ISO string, duration: number (seconds), date: string (YYYY-MM-DD), xpEarned: number, productivityEmoji: string}. XP formula: Math.floor(duration/3600) * 10 + (duration>=14400 ? 20 : 0). productivityEmoji based on duration: <30min='😐', 30-60min='👍', 1-2h='🔥', 2-4h='⚡', 4h+='🦁'.",
+
+    "7. LIVE TIMER LOGIC: In App component, add useRef timerRef for the interval. When startSession(categoryId) called: set activeSession={categoryId, startTime:new Date().toISOString(), elapsed:0}, save to ACTIVE_SESSION_KEY, start interval incrementing elapsed every second. pauseSession(): clear interval, update activeSession.elapsed. resumeSession(): restart interval. stopSession(): clear interval, create session object, push to sessions array, save to SESSIONS_KEY, clear activeSession+ACTIVE_SESSION_KEY, fire XP. On app load, check ACTIVE_SESSION_KEY: if found, calculate elapsed = (Date.now() - new Date(savedActiveSession.startTime)) / 1000, restore activeSession with correct elapsed.",
+
+    "8. GOALS DATA MODEL: goals = {dsa:{daily:2,weekly:10,total110:150}, dsml:{daily:1,weekly:7,total110:100}, projects:{daily:1,weekly:7,total110:100}, speaking:{daily:0.5,weekly:3,total110:50}, typing:{daily:0.5,weekly:3,total110:30}}. All values in hours. Default goals are preset. User can edit via GoalEditor component.",
+
+    "9. COMPONENT: ConfettiBlast - KEEP EXACTLY AS IS from existing code.",
+
+    "10. COMPONENT: XPFlash - KEEP EXACTLY AS IS from existing code.",
+
+    "11. COMPONENT: PomodoroWidget - KEEP EXACTLY AS IS from existing code (fixed position bottom-right). It should still appear on all views.",
+
+    "12. COMPONENT: HabitSetupModal - KEEP EXACTLY AS IS from existing code.",
+
+    "13. COMPONENT: VisualTimeline - KEEP EXACTLY AS IS from existing code.",
+
+    "14. COMPONENT: TimeBlockSection - KEEP EXACTLY AS IS from existing code.",
+
+    "15. COMPONENT: DaysLeftBanner - UPDATE: change title to '110 Days To Placement'. Add 4 metrics below: Days Left, Total Hours Studied (sum of all session durations), Required Hrs/Day (remaining target hours / days left), Placement Readiness % (totalHoursStudied / 800 * 100, capped at 100). Keep urgency colors.",
+
+    "16. COMPONENT: TodayMissionControl - KEEP AS IS but add a row showing today's study hours per category (small badges).",
+
+    "17. COMPONENT: DayCard - KEEP EXACTLY AS IS from existing code.",
+
+    "18. COMPONENT: CategoryCard - NEW. Props: {category, sessions, goals, activeSession, onStart, onPause, onResume, onStop}. Shows: category name+icon, color accent. Live timer if this category's session is active (show HH:MM:SS, Pause/Stop buttons). Today hours, weekly hours, total hours. Streak (consecutive days with sessions in this category). Target completion % (today/daily, week/weekly bars). Mini sparkline (last 7 days hours - use SVG bars, NOT Chart.js for this small chart). Start Session button if not active.",
+
+    "19. COMPONENT: SessionTimer - NEW. Full-width card showing: active category, elapsed time (large Orbitron font), start time, Pause/Resume/Stop buttons. If no session active, show category selector (5 category buttons) with 'Start Session' button. Keyboard: Space=pause/resume.",
+
+    "20. COMPONENT: SessionHistoryPanel - NEW. Shows: filter tabs (Today/This Week/All). For each session: card with category color border, category icon+name, duration, start time, end time, date, productivityEmoji, XP earned. Delete button (with confirm). Each session is editable (click edit to open inline form to change category/duration). Show empty state if no sessions. Summary stats at top: total sessions, total hours, avg session length.",
+
+    "21. COMPONENT: AnalyticsPanel - NEW. Three sub-tabs: Daily / Weekly / 110-Day. DAILY: total study hours today (large number), bar chart (Chart.js horizontal bar) of category breakdown today (hours per category, category colors). Deep work time (sessions >= 1h), idle time estimate, productivity %. WEEKLY: line chart (Chart.js) of daily total hours for last 7 days (each day as a point). Stacked bar chart of category hours per day. Most focused category this week. Average hours/day this week. 110-DAY: total hours across all sessions. Predicted total by Day 110 (current rate * 110). Best/weakest category (most/least hours). Consistency score (days with at least one session / total days elapsed). All charts use Chart.js via CDN. Charts mount in useEffect with canvasRef. Destroy+recreate chart on data change.",
+
+    "22. COMPONENT: HeatmapCalendar - NEW. GitHub-style 110-day grid. Each cell = one day. Color intensity based on total study hours that day: 0h=rgba(255,255,255,0.04), <1h=#1a3a2a, 1-2h=#1e5c35, 2-4h=#25a244, 4h+=#4ade80. Show month labels above columns. Show day labels (Mon/Wed/Fri) on left. On cell click: show tooltip/modal with that day's sessions list, category breakdown, total hours. Show legend at bottom.",
+
+    "23. COMPONENT: FocusMode - NEW. Fullscreen overlay (position:fixed, inset:0, zIndex:5000). Dark background with animated radial glow matching active category color. Large centered timer (Orbitron, 80px+). Category icon + name above timer. Pause/Stop buttons below timer. Random motivational quote. Session stats (elapsed, today total). Keyboard: Space=pause/resume, Esc=exit. Background ambient glow pulses with category color.",
+
+    "24. COMPONENT: GoalEditor - NEW. Modal or inline section. For each category: 3 number inputs (daily hours, weekly hours, 110-day hours). Save button. Shows current progress vs goals.",
+
+    "25. COMPONENT: AchievementBadge - NEW. Small badge card: icon, name, description, unlocked date or locked overlay. Used in dashboard and a dedicated achievements section.",
+
+    "26. NAVIGATION: Replace existing 4 tabs with new nav: ['🏠 Dashboard', '⏱ Timer', '📋 Sessions', '📊 Analytics', '🗓 Heatmap', '📅 Missions']. 'Missions' tab = the existing today/upcoming/all/completed day card views (preserve ALL existing mission functionality). Navigation is a horizontal tab bar, same style as existing.",
+
+    "27. DASHBOARD VIEW (activeTab='dashboard'): TOP ROW: 3 cards - [Active Session card (shows live timer + category if active, else 'No Active Session'), Today's Total Hours, Days Remaining]. MIDDLE: 5 CategoryCards in a responsive grid (2 cols on narrow, all 5 across on wide). BOTTOM ROW: left side = WeeklyHeatmap mini (7-day bar chart using SVG, not Chart.js), right side = Recent Sessions list (last 5 sessions), below = Daily Quote + today's Focus Score. Also show Achievement badges row (unlocked ones). Keep DaysLeftBanner at top of dashboard.",
+
+    "28. TIMER VIEW (activeTab='timer'): Show SessionTimer component (full width). Below it: show the 5 CategoryCards in compact mode (smaller, no sparkline). The Pomodoro widget stays fixed-position as always.",
+
+    "29. SESSIONS VIEW (activeTab='sessions'): Full SessionHistoryPanel.",
+
+    "30. ANALYTICS VIEW (activeTab='analytics'): Full AnalyticsPanel with Daily/Weekly/110-Day sub-tabs.",
+
+    "31. HEATMAP VIEW (activeTab='heatmap'): Full HeatmapCalendar with click-to-detail.",
+
+    "32. MISSIONS VIEW (activeTab='missions'): Preserve ALL existing mission functionality exactly: the DayCard grid with today/upcoming/all/completed sub-tabs, TodayMissionControl, habits, time blocks, priorities. The sub-tabs for today/upcoming/all/completed become a secondary nav within the Missions tab.",
+
+    "33. HEADER: Update title to 'Placement Prep OS'. Keep level/XP display. Keep backup/restore buttons. Add a 'Focus Mode' button. Show streak prominently.",
+
+    "34. GAMIFICATION: checkAchievements() function that runs after every session save and after each day completes. Unlocks achievements and fires confetti + XP flash when newly unlocked. XP formula for sessions: Math.floor(durationSeconds/360) (10 XP per hour). Add 'level up' detection in calcStats - if level changes, fire special confetti+XP animation. Show rank title (LEVEL_TITLES) prominently in header.",
+
+    "35. GOALS SECTION: In Dashboard view, below category cards, show a 'Goals Progress' section with progress bars for each category (daily %, weekly %, 110-day %). Include GoalEditor trigger button ('Set Goals').",
+
+    "36. RESPONSIVE CSS: All grid layouts use CSS grid with minmax so they reflow on narrow screens. Max-width 1200px container. Pomodoro widget stays fixed bottom-right always. Focus mode is always fullscreen.",
+
+    "37. GLOBAL STYLES: Expand the <style> block with: glassmorphism card class (.glass-card), animated glow class (.glow-card), hover lift class (.lift-card), progress bar animation, chart container sizing, focus mode animations (radialGlow keyframe), session card styles. Keep all existing keyframes (pulse, cfall, xpflash, glow).",
+
+    "38. FINAL WIRING: In App() component, wire all state, handlers, and pass correct props to every component. Ensure all localStorage loads happen in the initial useEffect. Ensure Chart.js charts are destroyed before recreating (use chartInstance.current?.destroy()). Ensure the Pomodoro widget and FocusMode overlay render outside the main content div so they always appear on top."
+  ],
+  "acceptance_criteria": [
+    "The file /projects/sandbox/trackfinn/index.html is a single valid HTML file with no external JS/CSS file references beyond CDN links",
+    "Opening index.html in a browser shows the Placement Prep OS with 6 navigation tabs: Dashboard, Timer, Sessions, Analytics, Heatmap, Missions",
+    "Dashboard tab shows CategoryCards for all 5 categories (DSA, DS/ML, Projects, Speaking, Typing) with today/weekly/total hours",
+    "Timer tab shows SessionTimer with Start Session capability for each category",
+    "Starting a session shows a live incrementing timer; stopping saves the session to localStorage under key 'ppos-sessions-v1'",
+    "Sessions tab shows session history with delete capability",
+    "Analytics tab shows charts (Chart.js) for daily, weekly, and 110-day views",
+    "Heatmap tab shows a 110-day GitHub-style grid colored by study intensity",
+    "Missions tab preserves ALL existing functionality: DayCard with tasks, habits, time blocks, pomodoro, XP system",
+    "Focus Mode overlay appears fullscreen with keyboard shortcuts (Space=pause, Esc=exit)",
+    "Refreshing the page restores: all sessions, an in-progress timer session (with correct elapsed time), all day/task/habit data",
+    "The Pomodoro widget remains in fixed bottom-right position across all tabs",
+    "No JavaScript errors in browser console on load",
+    "Chart.js charts render without errors and display correct data",
+    "XP and achievements system works: completing sessions earns XP, achievements unlock with notifications"
+  ],
+  "verification": [
+    "python3 -m http.server 8080 -d /projects/sandbox/trackfinn (serve locally)",
+    "Open http://localhost:8080 in browser, check console for zero errors",
+    "Validate HTML structure: grep -c 'function ' /projects/sandbox/trackfinn/index.html (should show 20+ functions)",
+    "Validate Chart.js CDN link present: grep 'chart' /projects/sandbox/trackfinn/index.html",
+    "Validate all 5 categories present: grep -E 'DSA|dsml|projects|speaking|typing' /projects/sandbox/trackfinn/index.html",
+    "Validate localStorage keys present: grep 'ppos-sessions' /projects/sandbox/trackfinn/index.html",
+    "Validate Focus Mode component present: grep 'FocusMode' /projects/sandbox/trackfinn/index.html",
+    "Validate Chart.js usage present: grep 'new Chart' /projects/sandbox/trackfinn/index.html"
+  ],
+  "blocked_reason": null,
+  "findings": "Implemented complete 2085-line Placement Prep OS (now 2098 lines after fixes). All 38 steps completed previously. Additionally fixed 6 review issues: (1) sessionsXP state variable added, accumulated in pendingSession useEffect, passed to calcStats as pomXP+sessionsXP, persisted under 'ppos-sessionsxp-v1'; (2) Crash recovery now branches on saved.paused - uses saved.elapsed directly for paused sessions instead of recalculating from startTime; (3) stopSession refactored to use pendingSessionRef pattern - side effects (setSessions, setSessionsXP, fireXP, fireConfetti, checkAchievements) moved out of the setActiveSession updater into a separate useEffect that watches activeSession===null; (4) checkAchievements replaced with checkAchievementsForSessions(updatedSessions) that takes the sessions array directly via sessionsRef.current, eliminating the nested setState anti-pattern and the 200ms setTimeout workaround; (5) SessionTimer now accepts isFocusModeActive prop and skips registering its keydown handler when Focus Mode is active, preventing double-fire of space bar; dependency array changed to [activeSession?.categoryId, activeSession?.paused, isFocusModeActive]; (6) async keyword removed from stopSession."
+}
