@@ -27,10 +27,11 @@
       const POMO_KEY    = "mission-pomoxp-v1";
 
       // Storage keys (new)
-      const SESSIONS_KEY      = "ppos-sessions-v1";
-      const GOALS_KEY         = "ppos-goals-v1";
-      const ACHIEVEMENTS_KEY  = "ppos-achievements-v1";
+      const SESSIONS_KEY       = "ppos-sessions-v1";
+      const GOALS_KEY          = "ppos-goals-v1";
+      const ACHIEVEMENTS_KEY   = "ppos-achievements-v1";
       const ACTIVE_SESSION_KEY = "ppos-active-session-v1";
+      const SESSIONSXP_KEY     = "ppos-sessionsxp-v1";
 
       const STUDY_CATEGORIES = [
         { id:"dsa",      label:"DSA",            color:"#fb923c", icon:"🧠" },
@@ -1373,7 +1374,7 @@
           };
           window.addEventListener("keydown", handler);
           return ()=>window.removeEventListener("keydown", handler);
-        }, [activeSession]);
+        }, [activeSession?.categoryId, activeSession?.paused]);
         if (!cat || !activeSession) return null;
         return (
           <div style={{
@@ -1520,8 +1521,8 @@
             setHabits(h||[{id:"w",name:"Drink Water (8 glasses)",emoji:"💧"},{id:"e",name:"Exercise / Move",emoji:"🏃"},{id:"r",name:"Read 30 min",emoji:"📚"}]);
             const px = await gStore(POMO_KEY);
             if(px) setPomXP(px);
-            const sxp = await gStore("ppos-sessionsxp-v1");
-            if(sxp) setSessionsXP(sxp);
+            const sxp = await gStore(SESSIONSXP_KEY);
+            if (sxp !== null && sxp !== undefined) setSessionsXP(sxp);
             const sess = await gStore(SESSIONS_KEY);
             if(sess) setSessions(sess);
             const g = await gStore(GOALS_KEY);
@@ -1549,7 +1550,7 @@
         useEffect(()=>{ if(!loading) sStore(HABITS_KEY,habits); },[habits,loading]);
         useEffect(()=>{ if(!loading&&pomXP>0) sStore(POMO_KEY,pomXP); },[pomXP,loading]);
         useEffect(()=>{ if(!loading) sStore(SESSIONS_KEY,sessions); sessionsRef.current=sessions; },[sessions,loading]);
-        useEffect(()=>{ if(!loading&&sessionsXP>0) sStore("ppos-sessionsxp-v1",sessionsXP); },[sessionsXP,loading]);
+        useEffect(()=>{ if(!loading&&sessionsXP>0) sStore(SESSIONSXP_KEY,sessionsXP); },[sessionsXP,loading]);
         useEffect(()=>{ if(!loading) sStore(GOALS_KEY,goals); },[goals,loading]);
         useEffect(()=>{ if(!loading) sStore(ACHIEVEMENTS_KEY,achievements); },[achievements,loading]);
 
