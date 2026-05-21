@@ -919,8 +919,9 @@
       }
 
       // ── SESSION TIMER ─────────────────────────────────────────────
-      function SessionTimer({sessions, goals, activeSession, onStart, onPause, onResume, onStop, onFocusMode}) {
+      function SessionTimer({sessions, goals, activeSession, onStart, onPause, onResume, onStop, onFocusMode, isFocusModeActive}) {
         useEffect(()=>{
+          if (isFocusModeActive) return;
           const handler = e => {
             if (e.code === "Space" && activeSession) {
               e.preventDefault();
@@ -930,7 +931,7 @@
           };
           window.addEventListener("keydown", handler);
           return () => window.removeEventListener("keydown", handler);
-        }, [activeSession]);
+        }, [activeSession?.categoryId, activeSession?.paused, isFocusModeActive]);
         const cat = activeSession ? STUDY_CATEGORIES.find(c=>c.id===activeSession.categoryId) : null;
         return (
           <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)",borderRadius:20,padding:"28px 32px",marginBottom:20}}>
@@ -1496,6 +1497,7 @@
         const [confetti,setConfetti]         = useState(false);
         const [xpFlash,setXpFlash]           = useState({vis:false,xp:0,emoji:"⚡"});
         const [pomXP,setPomXP]               = useState(0);
+        const [sessionsXP,setSessionsXP]     = useState(0);
         // New state
         const [sessions,setSessions]         = useState([]);
         const [goals,setGoals]               = useState(DEFAULT_GOALS);
@@ -1505,6 +1507,8 @@
         const [activeTab,setActiveTab]       = useState("dashboard");
         const [showGoalEditor,setGoalEditor] = useState(false);
         const timerRef = useRef(null);
+        const pendingSessionRef = useRef(null);
+        const sessionsRef = useRef([]);
         const today = getTodayStr();
 
         // ── LOAD ──
@@ -1516,6 +1520,8 @@
             setHabits(h||[{id:"w",name:"Drink Water (8 glasses)",emoji:"💧"},{id:"e",name:"Exercise / Move",emoji:"🏃"},{id:"r",name:"Read 30 min",emoji:"📚"}]);
             const px = await gStore(POMO_KEY);
             if(px) setPomXP(px);
+            const sxp = await gStore("ppos-sessionsxp-v1");
+            if(sxp) setSessionsXP(sxp);
             const sess = await gStore(SESSIONS_KEY);
             if(sess) setSessions(sess);
             const g = await gStore(GOALS_KEY);
@@ -1525,7 +1531,9 @@
             // Crash recovery
             const saved = await gStore(ACTIVE_SESSION_KEY);
             if(saved&&saved.startTime) {
-              const elapsed = Math.max(0, Math.floor((Date.now()-new Date(saved.startTime))/1000));
+              const elapsed = saved.paused
+                ? saved.elapsed  // paused: use saved elapsed directly
+                : Math.max(0, Math.floor((Date.now()-new Date(saved.startTime))/1000));
               const restored = {...saved, elapsed};
               setActiveSession(restored);
               startTimerInterval(restored);
@@ -1540,7 +1548,8 @@
         useEffect(()=>{ if(!loading&&days.length>0) sStore(STORAGE_KEY,days); },[days,loading]);
         useEffect(()=>{ if(!loading) sStore(HABITS_KEY,habits); },[habits,loading]);
         useEffect(()=>{ if(!loading&&pomXP>0) sStore(POMO_KEY,pomXP); },[pomXP,loading]);
-        useEffect(()=>{ if(!loading) sStore(SESSIONS_KEY,sessions); },[sessions,loading]);
+        useEffect(()=>{ if(!loading) sStore(SESSIONS_KEY,sessions); sessionsRef.current=sessions; },[sessions,loading]);
+        useEffect(()=>{ if(!loading&&sessionsXP>0) sStore("ppos-sessionsxp-v1",sessionsXP); },[sessionsXP,loading]);
         useEffect(()=>{ if(!loading) sStore(GOALS_KEY,goals); },[goals,loading]);
         useEffect(()=>{ if(!loading) sStore(ACHIEVEMENTS_KEY,achievements); },[achievements,loading]);
 
@@ -1581,7 +1590,7 @@
             return updated;
           });
         };
-        const stopSession = async () => {
+        const stopSession = () => {
           clearInterval(timerRef.current);
           setActiveSession(prev=>{
             if(!prev) return null;
@@ -1594,42 +1603,46 @@
               duration:dur, date:prev.startTime.split("T")[0],
               xpEarned:xp, productivityEmoji:productivityEmoji(dur),
             };
-            setSessions(p=>{
-              const updated=[...p,newSession];
-              sStore(SESSIONS_KEY,updated);
-              return updated;
-            });
-            sStore(ACTIVE_SESSION_KEY,null);
-            try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch{}
-            if(xp>0) { fireXP(xp,"📚"); fireConfetti(); }
-            // Check achievements after a short delay (state update timing)
-            setTimeout(()=>checkAchievements(newSession),200);
+            pendingSessionRef.current = {newSession, xp};
             return null;
           });
         };
 
+        // Process pending session after activeSession becomes null
+        useEffect(()=>{
+          if(activeSession===null&&pendingSessionRef.current) {
+            const {newSession, xp} = pendingSessionRef.current;
+            pendingSessionRef.current = null;
+            const updatedSessions = [...sessionsRef.current, newSession];
+            setSessions(updatedSessions);
+            sStore(SESSIONS_KEY, updatedSessions);
+            sStore(ACTIVE_SESSION_KEY, null);
+            try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch{}
+            setSessionsXP(p=>p+xp);
+            if(xp>0) { fireXP(xp,"📚"); fireConfetti(); }
+            checkAchievementsForSessions(updatedSessions);
+          }
+        },[activeSession]);
+
         // ── ACHIEVEMENTS ──
-        const checkAchievements = (newSession) => {
-          setSessions(currentSessions=>{
-            setAchievements(currentAch=>{
-              const newAch = [...currentAch];
-              const defs = [
-                {id:"dsa_warrior",    check:s=>s.filter(x=>x.categoryId==="dsa").reduce((a,b)=>a+b.duration,0)/3600>=20},
-                {id:"100hr_club",     check:s=>s.reduce((a,b)=>a+b.duration,0)/3600>=100},
-                {id:"7day_streak",    check:s=>{ const dates=[...new Set(s.map(x=>x.date))].sort(); let streak=0,cursor=getTodayStr(); for(const d of [...dates].reverse()){if(d===cursor){streak++;const p=new Date(cursor+"T00:00:00");p.setDate(p.getDate()-1);cursor=p.toISOString().split("T")[0];}else if(d<cursor)break;} return streak>=7; }},
-                {id:"deep_work_beast",check:s=>s.some(x=>x.duration>=14400)},
-              ];
-              let unlocked=false;
-              defs.forEach(def=>{
-                if(!newAch.includes(def.id)&&def.check(currentSessions)){
-                  newAch.push(def.id);
-                  unlocked=true;
-                }
-              });
-              if(unlocked){fireXP(50,"🏆");fireConfetti();}
-              return newAch;
+        const checkAchievementsForSessions = (updatedSessions) => {
+          const defs = [
+            {id:"dsa_warrior",    check:s=>s.filter(x=>x.categoryId==="dsa").reduce((a,b)=>a+b.duration,0)/3600>=20},
+            {id:"100hr_club",     check:s=>s.reduce((a,b)=>a+b.duration,0)/3600>=100},
+            {id:"7day_streak",    check:s=>{ const dates=[...new Set(s.map(x=>x.date))].sort(); let streak=0,cursor=getTodayStr(); for(const d of [...dates].reverse()){if(d===cursor){streak++;const p=new Date(cursor+"T00:00:00");p.setDate(p.getDate()-1);cursor=p.toISOString().split("T")[0];}else if(d<cursor)break;} return streak>=7; }},
+            {id:"deep_work_beast",check:s=>s.some(x=>x.duration>=14400)},
+          ];
+          setAchievements(currentAch=>{
+            const newAch = [...currentAch];
+            let unlocked = false;
+            defs.forEach(def=>{
+              if(!newAch.includes(def.id)&&def.check(updatedSessions)){
+                newAch.push(def.id);
+                unlocked=true;
+              }
             });
-            return currentSessions;
+            if(unlocked){fireXP(50,"🏆");fireConfetti();}
+            return newAch;
           });
         };
 
@@ -1691,7 +1704,7 @@
           </div>
         );
 
-        const stats    = calcStats(days,pomXP);
+        const stats    = calcStats(days,pomXP+sessionsXP);
         const filtered = getFiltered();
         const quote    = getTodayQuote();
         const todayDay = days.find(d=>d.date===today);
@@ -1952,7 +1965,7 @@
                 <div>
                   <SessionTimer sessions={sessions} goals={goals} activeSession={activeSession}
                     onStart={startSession} onPause={pauseSession} onResume={resumeSession} onStop={stopSession}
-                    onFocusMode={()=>setFocusMode(true)}/>
+                    onFocusMode={()=>setFocusMode(true)} isFocusModeActive={focusModeActive}/>
                   <div style={{fontSize:12,color:"#4b5563",letterSpacing:2,fontWeight:800,marginBottom:12}}>📚 CATEGORY OVERVIEW</div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12}}>
                     {STUDY_CATEGORIES.map(c=>(
