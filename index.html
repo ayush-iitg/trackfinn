@@ -559,13 +559,14 @@
       }
 
       // ── DAYS LEFT BANNER ─────────────────────────────────────────
-      function DaysLeftBanner({stats, sessions}) {
+      function DaysLeftBanner({stats, sessions, goals}) {
         const daysLeft = getDaysLeft();
         const dayNum   = getDayNumber();
         const urgencyColor = daysLeft<=14?"#ef4444":daysLeft<=30?"#fb923c":daysLeft<=60?"#f59e0b":"#34d399";
         const urgencyMsg = daysLeft<=7?"⚠️ FINAL SPRINT":daysLeft<=30?"🔥 CRUNCH TIME":daysLeft<=60?"⚡ BUILD MOMENTUM":"🚀 STAY CONSISTENT";
         const totalHoursStudied = (sessions||[]).reduce((s,x)=>s+(x.duration||0),0) / 3600;
-        const targetTotal = 800;
+        const activeGoals = goals || DEFAULT_GOALS;
+        const targetTotal = Object.values(activeGoals).reduce((sum, g) => sum + (g.total110 || 0), 0);
         const daysElapsed = Math.max(1, getDayNumber() - 1);
         const reqHrsPerDay = daysLeft > 0 ? Math.max(0, (targetTotal - totalHoursStudied) / daysLeft) : 0;
         const placementReady = Math.min(100, Math.round((totalHoursStudied / targetTotal) * 100));
@@ -1074,12 +1075,16 @@
         const [sub, setSub] = useState("daily");
         const today = getTodayStr();
         const weekStart = getWeekStart();
-        const dailyRef   = useRef(null);
-        const weeklyRef  = useRef(null);
-        const weekStackRef = useRef(null);
-        const dailyInst   = useRef(null);
-        const weeklyInst  = useRef(null);
-        const weekStackInst = useRef(null);
+        const dailyRef      = useRef(null);
+        const weeklyRef     = useRef(null);
+        const weekStackRef  = useRef(null);
+        const monthlyRef    = useRef(null);
+        const monthStackRef = useRef(null);
+        const dailyInst      = useRef(null);
+        const weeklyInst     = useRef(null);
+        const weekStackInst  = useRef(null);
+        const monthlyInst    = useRef(null);
+        const monthStackInst = useRef(null);
 
         // Daily chart
         useEffect(()=>{
@@ -1137,6 +1142,46 @@
           return ()=>weekStackInst.current?.destroy();
         }, [sub, sessions]);
 
+        // Monthly line chart
+        useEffect(()=>{
+          if (sub !== "monthly" || !monthlyRef.current) return;
+          monthlyInst.current?.destroy();
+          const now = new Date();
+          const year = now.getFullYear(), month = now.getMonth();
+          const daysInMonth = new Date(year, month+1, 0).getDate();
+          const days = Array.from({length:daysInMonth},(_,i)=>{ const d=new Date(year,month,i+1); return d.toISOString().split("T")[0]; });
+          const totals = days.map(d=>sessions.filter(s=>s.date===d).reduce((s,x)=>s+x.duration,0)/3600);
+          const labels = days.map(d=>new Date(d+"T00:00:00").toLocaleDateString("en-US",{day:"numeric"}));
+          monthlyInst.current = new Chart(monthlyRef.current, {
+            type:"line",
+            data:{labels,datasets:[{label:"Total Hours",data:totals,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,.12)",fill:true,tension:.4,pointBackgroundColor:"#f59e0b",pointRadius:3}]},
+            options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:"rgba(255,255,255,.06)"},ticks:{color:"#4b5563",maxTicksLimit:15}},y:{grid:{color:"rgba(255,255,255,.06)"},ticks:{color:"#4b5563",callback:v=>`${v}h`}}}}
+          });
+          return ()=>monthlyInst.current?.destroy();
+        }, [sub, sessions]);
+
+        // Monthly stacked bar
+        useEffect(()=>{
+          if (sub !== "monthly" || !monthStackRef.current) return;
+          monthStackInst.current?.destroy();
+          const now = new Date();
+          const year = now.getFullYear(), month = now.getMonth();
+          const daysInMonth = new Date(year, month+1, 0).getDate();
+          const days = Array.from({length:daysInMonth},(_,i)=>{ const d=new Date(year,month,i+1); return d.toISOString().split("T")[0]; });
+          const labels = days.map(d=>new Date(d+"T00:00:00").toLocaleDateString("en-US",{day:"numeric"}));
+          const datasets = STUDY_CATEGORIES.map(c=>({
+            label:`${c.icon} ${c.label}`,
+            data:days.map(d=>sessions.filter(s=>s.date===d&&s.categoryId===c.id).reduce((s,x)=>s+x.duration,0)/3600),
+            backgroundColor:c.color+"88", borderColor:c.color, borderWidth:1,
+          }));
+          monthStackInst.current = new Chart(monthStackRef.current, {
+            type:"bar",
+            data:{labels,datasets},
+            options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#94a3b8",boxWidth:12,padding:8}}},scales:{x:{stacked:true,grid:{display:false},ticks:{color:"#4b5563",maxTicksLimit:15}},y:{stacked:true,grid:{color:"rgba(255,255,255,.06)"},ticks:{color:"#4b5563",callback:v=>`${v}h`}}}}
+          });
+          return ()=>monthStackInst.current?.destroy();
+        }, [sub, sessions]);
+
         const totalSecs = sessions.reduce((s,x)=>s+(x.duration||0),0);
         const daysElapsed = Math.max(1, getDayNumber()-1);
         const avgHrsDay = totalSecs/3600/Math.max(1,daysElapsed);
@@ -1150,7 +1195,7 @@
         return (
           <div>
             <div style={{display:"flex",gap:8,marginBottom:24}}>
-              {[["daily","📊 Daily"],["weekly","📈 Weekly"],["110day","🗓 110-Day"]].map(([id,lbl])=>(
+              {[["daily","📊 Daily"],["weekly","📈 Weekly"],["monthly","📅 Monthly"],["110day","🗓 110-Day"]].map(([id,lbl])=>(
                 <button key={id} onClick={()=>setSub(id)} className="tab" style={{
                   padding:"9px 18px",borderRadius:9,fontSize:13,fontWeight:700,fontFamily:"inherit",
                   background:sub===id?"rgba(245,158,11,.15)":"rgba(255,255,255,.03)",
@@ -1193,6 +1238,38 @@
                 </div>
                 <div style={{height:200,position:"relative",marginBottom:20}}>
                   <canvas ref={weekStackRef} style={{width:"100%",height:"100%"}}/>
+                </div>
+              </div>
+            )}
+
+            {sub==="monthly"&&(
+              <div>
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:12,color:"#4b5563",letterSpacing:1.5,fontWeight:800,marginBottom:4}}>
+                    {new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"}).toUpperCase()}
+                  </div>
+                  <div style={{fontFamily:"'Orbitron',monospace",fontSize:36,fontWeight:900,color:"#f59e0b"}}>
+                    {(()=>{ const now=new Date(); return sessions.filter(s=>{ const d=new Date(s.date+"T00:00:00"); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).reduce((s,x)=>s+x.duration,0)/3600; })().toFixed(1)}h
+                  </div>
+                </div>
+                <div style={{height:200,position:"relative",marginBottom:20}}>
+                  <canvas ref={monthlyRef} style={{width:"100%",height:"100%"}}/>
+                </div>
+                <div style={{height:200,position:"relative",marginBottom:20}}>
+                  <canvas ref={monthStackRef} style={{width:"100%",height:"100%"}}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10,marginTop:4}}>
+                  {STUDY_CATEGORIES.map(c=>{
+                    const now=new Date();
+                    const secs=sessions.filter(s=>{ const d=new Date(s.date+"T00:00:00"); return s.categoryId===c.id&&d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).reduce((s,x)=>s+x.duration,0);
+                    return (
+                      <div key={c.id} style={{background:"rgba(255,255,255,.03)",border:`1px solid ${c.color}25`,borderRadius:10,padding:"12px",textAlign:"center"}}>
+                        <div style={{fontSize:18,marginBottom:4}}>{c.icon}</div>
+                        <div style={{fontSize:9,color:c.color,fontWeight:700,letterSpacing:1,marginBottom:4}}>{c.label}</div>
+                        <div style={{fontFamily:"'Orbitron',monospace",fontSize:14,fontWeight:700,color:c.color}}>{formatDuration(secs)}</div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1823,7 +1900,7 @@
               {/* ========== DASHBOARD TAB ========== */}
               {activeTab==="dashboard"&&(
                 <div>
-                  <DaysLeftBanner stats={stats} sessions={sessions}/>
+                  <DaysLeftBanner stats={stats} sessions={sessions} goals={goals}/>
 
                   {/* Top 3 stat cards */}
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:20}}>
