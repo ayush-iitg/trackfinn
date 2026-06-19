@@ -1323,10 +1323,14 @@
         sessions.forEach(s=>{ hoursByDate[s.date] = (hoursByDate[s.date]||0) + s.duration/3600; });
         const cellColor = h => {
           if (!h || h === 0) return "rgba(255,255,255,.04)";
-          if (h < 1) return "#1a3a2a";
-          if (h < 2) return "#1e5c35";
-          if (h < 4) return "#25a244";
-          return "#4ade80";
+          if (h < 4) return "#7f1d1d";
+          if (h >= 11) return "#4ade80";
+          // smooth gradient: red (#ef4444) → green (#4ade80) for 4–11h
+          const t = (h - 4) / (11 - 4);
+          const r = Math.round(239 + (74  - 239) * t);
+          const g = Math.round(68  + (222 - 68)  * t);
+          const b = Math.round(68  + (128 - 68)  * t);
+          return `rgb(${r},${g},${b})`;
         };
         // Group by week columns
         const firstDay = new Date(allDates[0]+"T00:00:00");
@@ -1394,14 +1398,21 @@
             </div>
             {/* Legend */}
             <div style={{display:"flex",alignItems:"center",gap:8,marginTop:16,flexWrap:"wrap"}}>
-              <span style={{fontSize:11,color:"#4b5563",fontWeight:700}}>Less</span>
-              {[0,"<1h","1-2h","2-4h","4h+"].map((lbl,i)=>(
+              <span style={{fontSize:11,color:"#4b5563",fontWeight:700}}>No study</span>
+              {[
+                {color:"rgba(255,255,255,.04)", label:"0h"},
+                {color:"#7f1d1d",  label:"<4h"},
+                {color:"rgb(186,93,68)",  label:"~6h"},
+                {color:"rgb(133,148,68)", label:"~8h"},
+                {color:"rgb(81,204,98)",  label:"~10h"},
+                {color:"#4ade80",  label:"11h+"},
+              ].map((m,i)=>(
                 <div key={i} style={{display:"flex",alignItems:"center",gap:4}}>
-                  <div style={{width:12,height:12,borderRadius:2,background:i===0?"rgba(255,255,255,.04)":i===1?"#1a3a2a":i===2?"#1e5c35":i===3?"#25a244":"#4ade80"}}/>
-                  <span style={{fontSize:10,color:"#4b5563"}}>{lbl}</span>
+                  <div style={{width:12,height:12,borderRadius:2,background:m.color,border:"1px solid rgba(255,255,255,.08)"}}/>
+                  <span style={{fontSize:10,color:"#4b5563"}}>{m.label}</span>
                 </div>
               ))}
-              <span style={{fontSize:11,color:"#4b5563",fontWeight:700}}>More</span>
+              <span style={{fontSize:11,color:"#4b5563",fontWeight:700}}>Peak</span>
             </div>
             {/* Tooltip */}
             {tooltip&&(
