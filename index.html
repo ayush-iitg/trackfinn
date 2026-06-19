@@ -898,6 +898,24 @@
                 </svg>
               </div>
             )}
+            {!compact&&(()=>{
+              const daysElapsed = Math.max(1, getDayNumber()-1);
+              const expectedHrs = g.total110 > 0 ? g.total110 * daysElapsed / TOTAL_DAYS : 0;
+              const actualHrs   = totalSecs / 3600;
+              if (!g.total110 || g.total110 === 0) return null;
+              const pace = actualHrs >= expectedHrs * 1.1 ? "ahead" : actualHrs >= expectedHrs * 0.9 ? "ontrack" : "behind";
+              const PC = {
+                ahead:   { icon:"🟢", label:"AHEAD OF PACE",  color:"#34d399", bg:"rgba(52,211,153,.07)"  },
+                ontrack: { icon:"🟡", label:"ON TRACK",        color:"#f59e0b", bg:"rgba(245,158,11,.07)" },
+                behind:  { icon:"🔴", label:"BEHIND PACE",     color:"#ef4444", bg:"rgba(239,68,68,.07)"  },
+              }[pace];
+              return (
+                <div style={{marginBottom:12,padding:"7px 10px",borderRadius:8,background:PC.bg,border:`1px solid ${PC.color}30`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span style={{fontSize:10,fontWeight:800,color:PC.color,letterSpacing:1}}>{PC.icon} {PC.label}</span>
+                  <span style={{fontSize:10,color:"#4b5563"}}>{actualHrs.toFixed(1)}h · exp {expectedHrs.toFixed(1)}h</span>
+                </div>
+              );
+            })()}
             {isActive?(
               <div style={{display:"flex",gap:6}}>
                 <button onClick={activeSession.paused?()=>onResume(category.id):()=>onPause(category.id)} style={{
@@ -1927,6 +1945,34 @@
                 <div>
                   <DaysLeftBanner stats={stats} sessions={sessions} goals={goals}/>
 
+                  {/* Week-over-Week Comparison */}
+                  {(()=>{
+                    const lastWeekStart=(()=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()-7); return d.toISOString().split("T")[0]; })();
+                    const lastWeekHrs=sessions.filter(s=>s.date>=lastWeekStart&&s.date<weekStart).reduce((a,b)=>a+b.duration,0)/3600;
+                    const diff=weekHours-lastWeekHrs;
+                    const up=diff>0, same=Math.abs(diff)<0.1;
+                    const color=up?"#34d399":same?"#94a3b8":"#ef4444";
+                    const arrow=up?"↑":same?"→":"↓";
+                    const msg=up?`+${diff.toFixed(1)}h more than last week 💪`:same?"Same as last week":`${diff.toFixed(1)}h less than last week`;
+                    return (
+                      <div style={{background:"rgba(255,255,255,.02)",border:"1px solid rgba(255,255,255,.07)",borderRadius:12,padding:"12px 20px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                        <span style={{fontSize:10,color:"#4b5563",fontWeight:800,letterSpacing:2}}>📊 WEEK vs LAST WEEK</span>
+                        <div style={{display:"flex",alignItems:"center",gap:16}}>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:9,color:"#374151",fontWeight:700,letterSpacing:1,marginBottom:1}}>LAST WEEK</div>
+                            <div style={{fontFamily:"'Orbitron',monospace",fontSize:15,fontWeight:700,color:"#94a3b8"}}>{lastWeekHrs.toFixed(1)}h</div>
+                          </div>
+                          <div style={{fontFamily:"'Orbitron',monospace",fontSize:18,fontWeight:900,color}}>{arrow}</div>
+                          <div style={{textAlign:"center"}}>
+                            <div style={{fontSize:9,color:"#374151",fontWeight:700,letterSpacing:1,marginBottom:1}}>THIS WEEK</div>
+                            <div style={{fontFamily:"'Orbitron',monospace",fontSize:15,fontWeight:700,color:"#60a5fa"}}>{weekHours.toFixed(1)}h</div>
+                          </div>
+                        </div>
+                        <span style={{fontSize:12,color,fontWeight:700}}>{msg}</span>
+                      </div>
+                    );
+                  })()}
+
                   {/* Top 3 stat cards */}
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:20}}>
                     {/* Active session card */}
@@ -2010,6 +2056,29 @@
                                 </div>
                               </div>
                             ))}
+                            {(()=>{
+                              const daysElapsed = Math.max(1, getDayNumber()-1);
+                              const totalHrs    = totalSecs110/3600;
+                              const expectedHrs = g.total110 > 0 ? g.total110 * daysElapsed / TOTAL_DAYS : 0;
+                              const pace = !g.total110 ? null : totalHrs >= expectedHrs*1.1 ? "ahead" : totalHrs >= expectedHrs*0.9 ? "ontrack" : "behind";
+                              const PC = pace && {
+                                ahead:   {icon:"🟢",label:"Ahead",  color:"#34d399"},
+                                ontrack: {icon:"🟡",label:"On Track",color:"#f59e0b"},
+                                behind:  {icon:"🔴",label:"Behind",  color:"#ef4444"},
+                              }[pace];
+                              const avgPerDay   = totalHrs / daysElapsed;
+                              const remaining   = Math.max(0, (g.total110||0) - totalHrs);
+                              const daysNeeded  = avgPerDay > 0.01 ? remaining / avgPerDay : null;
+                              const estDate     = remaining <= 0 ? "✅ Done!" : daysNeeded !== null
+                                ? (()=>{ const d=new Date(); d.setDate(d.getDate()+Math.ceil(daysNeeded)); return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}); })()
+                                : "No data yet";
+                              return (
+                                <div style={{marginTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                  {PC && <span style={{fontSize:10,fontWeight:800,color:PC.color}}>{PC.icon} {PC.label}</span>}
+                                  <span style={{fontSize:10,color:"#4b5563",marginLeft:"auto"}}>🏁 Est: <span style={{color:c.color,fontWeight:700}}>{estDate}</span></span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })}
