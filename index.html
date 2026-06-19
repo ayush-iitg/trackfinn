@@ -1073,6 +1073,7 @@
       function AnalyticsPanel({sessions, goals}) {
         goals = goals || DEFAULT_GOALS;
         const [sub, setSub] = useState("daily");
+        const [selMonth, setSelMonth] = useState(()=>{ const n=new Date(); return {year:n.getFullYear(),month:n.getMonth()}; });
         const today = getTodayStr();
         const weekStart = getWeekStart();
         const dailyRef      = useRef(null);
@@ -1146,8 +1147,7 @@
         useEffect(()=>{
           if (sub !== "monthly" || !monthlyRef.current) return;
           monthlyInst.current?.destroy();
-          const now = new Date();
-          const year = now.getFullYear(), month = now.getMonth();
+          const {year, month} = selMonth;
           const daysInMonth = new Date(year, month+1, 0).getDate();
           const days = Array.from({length:daysInMonth},(_,i)=>{ const d=new Date(year,month,i+1); return d.toISOString().split("T")[0]; });
           const totals = days.map(d=>sessions.filter(s=>s.date===d).reduce((s,x)=>s+x.duration,0)/3600);
@@ -1158,14 +1158,13 @@
             options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:"rgba(255,255,255,.06)"},ticks:{color:"#4b5563",maxTicksLimit:15}},y:{grid:{color:"rgba(255,255,255,.06)"},ticks:{color:"#4b5563",callback:v=>`${v}h`}}}}
           });
           return ()=>monthlyInst.current?.destroy();
-        }, [sub, sessions]);
+        }, [sub, sessions, selMonth]);
 
         // Monthly stacked bar
         useEffect(()=>{
           if (sub !== "monthly" || !monthStackRef.current) return;
           monthStackInst.current?.destroy();
-          const now = new Date();
-          const year = now.getFullYear(), month = now.getMonth();
+          const {year, month} = selMonth;
           const daysInMonth = new Date(year, month+1, 0).getDate();
           const days = Array.from({length:daysInMonth},(_,i)=>{ const d=new Date(year,month,i+1); return d.toISOString().split("T")[0]; });
           const labels = days.map(d=>new Date(d+"T00:00:00").toLocaleDateString("en-US",{day:"numeric"}));
@@ -1180,7 +1179,7 @@
             options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#94a3b8",boxWidth:12,padding:8}}},scales:{x:{stacked:true,grid:{display:false},ticks:{color:"#4b5563",maxTicksLimit:15}},y:{stacked:true,grid:{color:"rgba(255,255,255,.06)"},ticks:{color:"#4b5563",callback:v=>`${v}h`}}}}
           });
           return ()=>monthStackInst.current?.destroy();
-        }, [sub, sessions]);
+        }, [sub, sessions, selMonth]);
 
         const totalSecs = sessions.reduce((s,x)=>s+(x.duration||0),0);
         const daysElapsed = Math.max(1, getDayNumber()-1);
@@ -1244,12 +1243,28 @@
 
             {sub==="monthly"&&(
               <div>
+                {/* Month picker */}
+                <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+                  {[{label:"May",year:2026,month:4},{label:"Jun",year:2026,month:5},{label:"Jul",year:2026,month:6},{label:"Aug",year:2026,month:7}].map(m=>{
+                    const isActive = selMonth.year===m.year && selMonth.month===m.month;
+                    return (
+                      <button key={m.label} onClick={()=>setSelMonth({year:m.year,month:m.month})} style={{
+                        padding:"8px 20px",borderRadius:9,fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:"pointer",
+                        background:isActive?"rgba(245,158,11,.2)":"rgba(255,255,255,.03)",
+                        color:isActive?"#f59e0b":"#4b5563",
+                        border:isActive?"1px solid rgba(245,158,11,.5)":"1px solid rgba(255,255,255,.08)",
+                        transition:"all .2s",
+                      }}>{m.label} 2026</button>
+                    );
+                  })}
+                </div>
+                {/* Total hours for selected month */}
                 <div style={{marginBottom:16}}>
                   <div style={{fontSize:12,color:"#4b5563",letterSpacing:1.5,fontWeight:800,marginBottom:4}}>
-                    {new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"}).toUpperCase()}
+                    {new Date(selMonth.year,selMonth.month,1).toLocaleDateString("en-US",{month:"long",year:"numeric"}).toUpperCase()}
                   </div>
                   <div style={{fontFamily:"'Orbitron',monospace",fontSize:36,fontWeight:900,color:"#f59e0b"}}>
-                    {(()=>{ const now=new Date(); return sessions.filter(s=>{ const d=new Date(s.date+"T00:00:00"); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).reduce((s,x)=>s+x.duration,0)/3600; })().toFixed(1)}h
+                    {(sessions.filter(s=>{ const d=new Date(s.date+"T00:00:00"); return d.getMonth()===selMonth.month&&d.getFullYear()===selMonth.year; }).reduce((s,x)=>s+x.duration,0)/3600).toFixed(1)}h
                   </div>
                 </div>
                 <div style={{height:200,position:"relative",marginBottom:20}}>
@@ -1260,8 +1275,7 @@
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10,marginTop:4}}>
                   {STUDY_CATEGORIES.map(c=>{
-                    const now=new Date();
-                    const secs=sessions.filter(s=>{ const d=new Date(s.date+"T00:00:00"); return s.categoryId===c.id&&d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).reduce((s,x)=>s+x.duration,0);
+                    const secs=sessions.filter(s=>{ const d=new Date(s.date+"T00:00:00"); return s.categoryId===c.id&&d.getMonth()===selMonth.month&&d.getFullYear()===selMonth.year; }).reduce((s,x)=>s+x.duration,0);
                     return (
                       <div key={c.id} style={{background:"rgba(255,255,255,.03)",border:`1px solid ${c.color}25`,borderRadius:10,padding:"12px",textAlign:"center"}}>
                         <div style={{fontSize:18,marginBottom:4}}>{c.icon}</div>
