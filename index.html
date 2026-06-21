@@ -157,6 +157,8 @@
           timeBlocks: d.timeBlocks || [],
           habitsDone: d.habitsDone || {},
           targets: (d.targets||[]).map(t => ({ ...t, priority: t.priority||"medium" })),
+          productivityRating: d.productivityRating || null,
+          completionNotes: d.completionNotes || "",
         };
       }
       async function gStore(key) {
@@ -681,7 +683,7 @@
       }
 
       // ── DAY CARD ─────────────────────────────────────────────────
-      function DayCard({day,isToday,isPast,habits,onToggleCompleted,onAddTarget,onToggleTarget,onRemoveTarget,onUpdateTomorrow,onToggleHabit,onAddTimeBlock,onToggleTimeBlock,onRemoveTimeBlock,onXPEarned}) {
+      function DayCard({day,isToday,isPast,habits,onToggleCompleted,onAddTarget,onToggleTarget,onRemoveTarget,onUpdateTomorrow,onUpdateRating,onUpdateNotes,onToggleHabit,onAddTimeBlock,onToggleTimeBlock,onRemoveTimeBlock,onXPEarned}) {
         const [newText,setNewText]   = useState("");
         const [priority,setPriority] = useState("medium");
         const [flash,setFlash]       = useState(null);
@@ -798,9 +800,39 @@
             <div style={{borderTop:"1px solid rgba(255,255,255,.04)"}}>
               <TimeBlockSection blocks={day.timeBlocks||[]} onAdd={b=>onAddTimeBlock(b)} onToggle={bid=>{const b=(day.timeBlocks||[]).find(x=>x.id===bid);if(b&&!b.done)onXPEarned(2,"⏱");onToggleTimeBlock(bid);}} onRemove={bid=>onRemoveTimeBlock(bid)}/>
             </div>
-            <div style={{padding:"0 18px 14px",borderTop:"1px solid rgba(255,255,255,.04)"}}>
-              <div style={{fontSize:11,color:"#4b5563",letterSpacing:1.5,fontWeight:800,marginBottom:8}}>📝 TODAY'S PLAN</div>
-              <textarea className="taddinput" rows={2} placeholder="Write today's plan or notes..." value={day.tomorrowTargets} onChange={e=>onUpdateTomorrow(e.target.value)} style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:9,padding:"9px 12px",fontSize:14,lineHeight:1.6}}/>
+            <div style={{padding:"14px 18px 14px",borderTop:"1px solid rgba(255,255,255,.04)"}}>
+              {/* Productivity Rating */}
+              <div style={{fontSize:11,color:"#a78bfa",letterSpacing:1.5,fontWeight:800,marginBottom:10}}>⭐ RATE YOUR DAY</div>
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
+                {[
+                  {r:1,emoji:"😴",label:"Lazy"},
+                  {r:2,emoji:"😐",label:"Average"},
+                  {r:3,emoji:"🙂",label:"Good"},
+                  {r:4,emoji:"💪",label:"Great"},
+                  {r:5,emoji:"🔥",label:"Legendary"},
+                ].map(({r,emoji,label})=>{
+                  const active = day.productivityRating === r;
+                  return (
+                    <button key={r} onClick={()=>{if(active)onUpdateRating(null);else{onUpdateRating(r);if(r>=4)onXPEarned(3,"⭐");}}} style={{
+                      flex:1,padding:"10px 4px",borderRadius:10,cursor:"pointer",fontFamily:"inherit",
+                      border:`1px solid ${active?"rgba(167,139,250,.5)":"rgba(255,255,255,.07)"}`,
+                      background:active?"rgba(167,139,250,.15)":"rgba(255,255,255,.02)",
+                      display:"flex",flexDirection:"column",alignItems:"center",gap:4,transition:"all .2s",
+                    }}>
+                      <span style={{fontSize:22}}>{emoji}</span>
+                      <span style={{fontSize:9,fontWeight:700,color:active?"#a78bfa":"#374151",letterSpacing:.5}}>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Completion Notes */}
+              <div style={{fontSize:11,color:"#34d399",letterSpacing:1.5,fontWeight:800,marginBottom:8}}>✅ TODAY'S WINS</div>
+              <textarea className="taddinput" rows={3}
+                placeholder="What did you accomplish today? List your wins..."
+                value={day.completionNotes||""}
+                onChange={e=>onUpdateNotes(e.target.value)}
+                style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:9,padding:"9px 12px",fontSize:14,lineHeight:1.6}}
+              />
             </div>
             <div style={{padding:"0 18px 18px"}}>
               <button className="cbtn" onClick={onToggleCompleted} style={{
@@ -2241,6 +2273,8 @@
                           onToggleTarget={tid=>toggleTarget(day.id,tid)}
                           onRemoveTarget={tid=>removeTarget(day.id,tid)}
                           onUpdateTomorrow={t=>updateDay(day.id,{tomorrowTargets:t})}
+                          onUpdateRating={r=>updateDay(day.id,{productivityRating:r})}
+                          onUpdateNotes={n=>updateDay(day.id,{completionNotes:n})}
                           onToggleHabit={hid=>toggleHabit(day.id,hid)}
                           onAddTimeBlock={b=>addTimeBlock(day.id,b)}
                           onToggleTimeBlock={bid=>toggleBlock(day.id,bid)}
