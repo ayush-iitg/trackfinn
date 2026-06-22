@@ -49,6 +49,18 @@
         typing:   { daily:0.5, weekly:3,  total110:30  },
       };
 
+      const PLACEMENT_SUBJECTS = [
+        { id:"dsa",   label:"DSA",         icon:"🧠", color:"#fb923c", why:"Core of every tech interview" },
+        { id:"ml",    label:"ML",           icon:"🤖", color:"#60a5fa", why:"Most IIT roles need this" },
+        { id:"dl",    label:"Deep Learning",icon:"🧬", color:"#818cf8", why:"Differentiates you from others" },
+        { id:"sql",   label:"SQL",          icon:"🗃️", color:"#34d399", why:"Asked in almost every round" },
+        { id:"py",    label:"Python",       icon:"🐍", color:"#facc15", why:"Primary language for DS/ML" },
+        { id:"pd",    label:"Pandas",       icon:"📊", color:"#f472b6", why:"Data manipulation essentials" },
+        { id:"stat",  label:"Statistics",   icon:"📈", color:"#a78bfa", why:"Foundation of ML models" },
+        { id:"prob",  label:"Probability",  icon:"🎲", color:"#f59e0b", why:"Core of ML + interviews" },
+        { id:"speak", label:"Speaking",     icon:"🎤", color:"#2dd4bf", why:"HR + communication rounds" },
+      ];
+
       const ACHIEVEMENTS_DEF = [
         { id:"dsa_warrior",     label:"DSA Warrior",      desc:"20+ hours in DSA",          icon:"⚔️"  },
         { id:"100hr_club",      label:"100 Hour Club",     desc:"100 total hours studied",   icon:"💯"  },
@@ -159,6 +171,7 @@
           targets: (d.targets||[]).map(t => ({ ...t, priority: t.priority||"medium" })),
           productivityRating: d.productivityRating || null,
           completionNotes: d.completionNotes || "",
+          subjectsCovered: d.subjectsCovered || [],
         };
       }
       async function gStore(key) {
@@ -584,7 +597,8 @@
               <div>
                 <div style={{fontSize:11,color:urgencyColor,letterSpacing:2.5,fontWeight:800,marginBottom:4}}>{urgencyMsg}</div>
                 <div style={{fontFamily:"'Orbitron',monospace",fontSize:42,fontWeight:900,color:urgencyColor,lineHeight:1,letterSpacing:-1}}>{daysLeft}</div>
-                <div style={{fontSize:14,color:"#64748b",marginTop:4,fontWeight:600}}>DAYS LEFT · 110 DAYS TO PLACEMENT</div>
+                <div style={{fontSize:14,color:"#64748b",marginTop:4,fontWeight:600}}>DAYS OF OPPORTUNITY LEFT</div>
+                <div style={{fontSize:11,color:"#475569",marginTop:6,fontStyle:"italic",maxWidth:200,lineHeight:1.5}}>{daysLeft} days × 8h = <span style={{color:urgencyColor,fontWeight:700}}>{daysLeft*8}h</span> of potential ahead.<br/>Stay focused. Stay the course.</div>
               </div>
               <div style={{display:"flex",gap:20,flexWrap:"wrap",alignItems:"center"}}>
                 {[
@@ -683,7 +697,7 @@
       }
 
       // ── DAY CARD ─────────────────────────────────────────────────
-      function DayCard({day,isToday,isPast,habits,onToggleCompleted,onAddTarget,onToggleTarget,onRemoveTarget,onUpdateTomorrow,onUpdateRating,onUpdateNotes,onToggleHabit,onAddTimeBlock,onToggleTimeBlock,onRemoveTimeBlock,onXPEarned}) {
+      function DayCard({day,isToday,isPast,habits,onToggleCompleted,onAddTarget,onToggleTarget,onRemoveTarget,onUpdateTomorrow,onUpdateRating,onUpdateNotes,onUpdateSubjects,onToggleHabit,onAddTimeBlock,onToggleTimeBlock,onRemoveTimeBlock,onXPEarned}) {
         const [newText,setNewText]   = useState("");
         const [priority,setPriority] = useState("medium");
         const [flash,setFlash]       = useState(null);
@@ -800,6 +814,27 @@
             <div style={{borderTop:"1px solid rgba(255,255,255,.04)"}}>
               <TimeBlockSection blocks={day.timeBlocks||[]} onAdd={b=>onAddTimeBlock(b)} onToggle={bid=>{const b=(day.timeBlocks||[]).find(x=>x.id===bid);if(b&&!b.done)onXPEarned(2,"⏱");onToggleTimeBlock(bid);}} onRemove={bid=>onRemoveTimeBlock(bid)}/>
             </div>
+            <div style={{padding:"14px 18px 0",borderTop:"1px solid rgba(255,255,255,.04)"}}>
+              <div style={{fontSize:11,color:"#60a5fa",letterSpacing:1.5,fontWeight:800,marginBottom:10}}>📚 SUBJECTS COVERED TODAY</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:7,marginBottom:14}}>
+                {PLACEMENT_SUBJECTS.map(s=>{
+                  const done = (day.subjectsCovered||[]).includes(s.id);
+                  return (
+                    <button key={s.id} onClick={()=>onUpdateSubjects(
+                      done ? (day.subjectsCovered||[]).filter(x=>x!==s.id)
+                           : [...(day.subjectsCovered||[]), s.id]
+                    )} style={{
+                      padding:"6px 12px",borderRadius:99,cursor:"pointer",fontFamily:"inherit",
+                      background:done?`${s.color}22`:"rgba(255,255,255,.03)",
+                      border:`1px solid ${done?s.color:"rgba(255,255,255,.1)"}`,
+                      color:done?s.color:"#4b5563",fontSize:12,fontWeight:700,
+                      textDecoration:done?"none":"none",transition:"all .2s",
+                    }}>{s.icon} {s.label}{done?" ✓":""}</button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div style={{padding:"14px 18px 14px",borderTop:"1px solid rgba(255,255,255,.04)"}}>
               {/* Productivity Rating */}
               <div style={{fontSize:11,color:"#a78bfa",letterSpacing:1.5,fontWeight:800,marginBottom:10}}>⭐ RATE YOUR DAY</div>
@@ -2059,6 +2094,45 @@
                     </div>
                   </div>
 
+                  {/* Deep Work Quality Card */}
+                  {(()=>{
+                    const todaySess = sessions.filter(s=>s.date===today);
+                    const deepSess  = todaySess.filter(s=>s.duration>=45*60);
+                    const surfSess  = todaySess.filter(s=>s.duration<45*60);
+                    const deepHrs   = deepSess.reduce((a,b)=>a+b.duration,0)/3600;
+                    const surfHrs   = surfSess.reduce((a,b)=>a+b.duration,0)/3600;
+                    const totalHrsT = deepHrs+surfHrs;
+                    const effPct    = totalHrsT>0 ? Math.round((deepHrs/totalHrsT)*100) : null;
+                    const effColor  = effPct===null?"#4b5563":effPct>=70?"#34d399":effPct>=50?"#f59e0b":"#ef4444";
+                    const effMsg    = effPct===null?"No sessions yet today":effPct>=70?"Excellent focus quality 🔥":effPct>=50?"Good — push for more deep sessions ⚡":"⚠️ Too many short sessions — go deeper";
+                    return (
+                      <div style={{background:"rgba(255,255,255,.02)",border:`1px solid ${effColor}25`,borderRadius:16,padding:"16px 24px",marginBottom:20}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+                          <div>
+                            <div style={{fontSize:11,color:effColor,letterSpacing:2,fontWeight:800,marginBottom:6}}>🧠 DEEP WORK QUALITY TODAY</div>
+                            <div style={{fontSize:12,color:"#475569",fontStyle:"italic"}}>{effMsg}</div>
+                          </div>
+                          <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{fontSize:9,color:"#374151",fontWeight:700,letterSpacing:1,marginBottom:2}}>DEEP WORK</div>
+                              <div style={{fontFamily:"'Orbitron',monospace",fontSize:18,fontWeight:900,color:"#34d399"}}>{deepHrs.toFixed(1)}h</div>
+                              <div style={{fontSize:9,color:"#374151"}}>≥45 min sessions</div>
+                            </div>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{fontSize:9,color:"#374151",fontWeight:700,letterSpacing:1,marginBottom:2}}>SURFACE</div>
+                              <div style={{fontFamily:"'Orbitron',monospace",fontSize:18,fontWeight:900,color:"#f59e0b"}}>{surfHrs.toFixed(1)}h</div>
+                              <div style={{fontSize:9,color:"#374151"}}>{"<"}45 min sessions</div>
+                            </div>
+                            <div style={{textAlign:"center"}}>
+                              <div style={{fontSize:9,color:"#374151",fontWeight:700,letterSpacing:1,marginBottom:2}}>EFFICIENCY</div>
+                              <div style={{fontFamily:"'Orbitron',monospace",fontSize:22,fontWeight:900,color:effColor}}>{effPct!==null?`${effPct}%`:"—"}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Goals Progress */}
                   <div style={{background:"rgba(255,255,255,.02)",border:"1px solid rgba(255,255,255,.07)",borderRadius:16,padding:"20px 24px",marginBottom:20}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -2160,6 +2234,31 @@
                       {ACHIEVEMENTS_DEF.map(a=>(
                         <AchievementBadge key={a.id} achievement={a} unlocked={achievements.includes(a.id)}/>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* North Star Panel */}
+                  <div style={{background:"linear-gradient(135deg,rgba(251,146,60,.05),rgba(167,139,250,.05))",border:"1px solid rgba(251,146,60,.3)",borderRadius:16,padding:"20px 24px",marginTop:20}}>
+                    <div style={{textAlign:"center",marginBottom:16}}>
+                      <div style={{fontFamily:"'Orbitron',monospace",fontSize:13,fontWeight:900,color:"#fb923c",letterSpacing:2,marginBottom:6}}>🌟 YOUR NORTH STAR</div>
+                      <div style={{fontSize:13,color:"#94a3b8",fontStyle:"italic"}}>These 9 subjects are your entire universe right now. Everything else is noise.</div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:16}}>
+                      {PLACEMENT_SUBJECTS.map(s=>(
+                        <div key={s.id} style={{background:"rgba(0,0,0,.25)",border:`1px solid ${s.color}30`,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"flex-start",gap:10}}>
+                          <span style={{fontSize:22,flexShrink:0}}>{s.icon}</span>
+                          <div>
+                            <div style={{fontFamily:"'Orbitron',monospace",fontSize:11,fontWeight:700,color:s.color,marginBottom:3}}>{s.label}</div>
+                            <div style={{fontSize:10,color:"#4b5563",lineHeight:1.4}}>{s.why}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{textAlign:"center",padding:"12px",background:"rgba(0,0,0,.2)",borderRadius:10,border:"1px solid rgba(255,255,255,.05)"}}>
+                      <div style={{fontSize:12,color:"#f59e0b",fontWeight:700,fontStyle:"italic"}}>
+                        "Other career paths can wait. Right now, DSA + ML + DL + SQL + Python + Pandas + Stats + Probability + Speaking = Your Placement."
+                      </div>
+                      <div style={{fontSize:11,color:"#4b5563",marginTop:6}}>Every time you feel distracted, come back here. This is all that matters.</div>
                     </div>
                   </div>
                 </div>
@@ -2275,6 +2374,7 @@
                           onUpdateTomorrow={t=>updateDay(day.id,{tomorrowTargets:t})}
                           onUpdateRating={r=>updateDay(day.id,{productivityRating:r})}
                           onUpdateNotes={n=>updateDay(day.id,{completionNotes:n})}
+                          onUpdateSubjects={s=>updateDay(day.id,{subjectsCovered:s})}
                           onToggleHabit={hid=>toggleHabit(day.id,hid)}
                           onAddTimeBlock={b=>addTimeBlock(day.id,b)}
                           onToggleTimeBlock={bid=>toggleBlock(day.id,bid)}
