@@ -1143,6 +1143,7 @@
                       <div style={{textAlign:"right",flexShrink:0}}>
                         <div style={{fontFamily:"'Orbitron',monospace",fontSize:16,fontWeight:700,color:cat.color}}>{formatDuration(s.duration)}</div>
                         <div style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>+{s.xpEarned} XP</div>
+                        {s.focusScore&&<div style={{marginTop:3}}>{Array.from({length:5},(_,i)=><span key={i} style={{fontSize:11,opacity:i<s.focusScore?1:.2}}>⭐</span>)}</div>}
                       </div>
                       <button className="delbtn" style={{opacity:1,flexShrink:0}} onClick={()=>{if(window.confirm("Delete this session?"))onDelete(s.id);}}>×</button>
                     </div>
@@ -1674,6 +1675,62 @@
         );
       }
 
+      // ── FOCUS RATING MODAL ──────────────────────────────────────
+      function FocusRatingModal({session, onRate, onSkip}) {
+        const [selected, setSelected] = useState(null);
+        const cat = STUDY_CATEGORIES.find(c=>c.id===session.categoryId)||{label:session.categoryId,color:"#94a3b8",icon:"📚"};
+        const LEVELS = [
+          {r:1,emoji:"😵",label:"Distracted"},
+          {r:2,emoji:"😐",label:"Low"},
+          {r:3,emoji:"🙂",label:"Moderate"},
+          {r:4,emoji:"💪",label:"Deep Focus"},
+          {r:5,emoji:"🔥",label:"Full Flow"},
+        ];
+        return (
+          <div style={{position:"fixed",inset:0,zIndex:6000,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+            <div style={{background:"#0d1628",border:`1px solid ${cat.color}50`,borderRadius:20,padding:28,width:440,maxWidth:"92vw",textAlign:"center",boxShadow:`0 20px 60px rgba(0,0,0,.8),0 0 40px ${cat.color}18`}}>
+              <div style={{fontSize:36,marginBottom:6}}>{cat.icon}</div>
+              <div style={{fontFamily:"'Orbitron',monospace",fontSize:14,fontWeight:700,color:cat.color,letterSpacing:1,marginBottom:4}}>SESSION COMPLETE</div>
+              <div style={{fontFamily:"'Orbitron',monospace",fontSize:28,fontWeight:900,color:"#f59e0b",marginBottom:4}}>{formatDuration(session.duration)}</div>
+              <div style={{fontSize:13,color:"#4b5563",marginBottom:22}}>{cat.label} · +{session.xpEarned} XP {session.productivityEmoji}</div>
+              <div style={{fontSize:12,color:"#94a3b8",fontWeight:800,letterSpacing:2,marginBottom:14}}>HOW FOCUSED WERE YOU?</div>
+              <div style={{display:"flex",gap:8,marginBottom:20}}>
+                {LEVELS.map(({r,emoji,label})=>{
+                  const active = selected===r;
+                  return (
+                    <button key={r} onClick={()=>setSelected(r)} style={{
+                      flex:1,padding:"12px 4px",borderRadius:12,cursor:"pointer",fontFamily:"inherit",
+                      border:`1px solid ${active?cat.color:"rgba(255,255,255,.08)"}`,
+                      background:active?`${cat.color}20`:"rgba(255,255,255,.02)",
+                      display:"flex",flexDirection:"column",alignItems:"center",gap:5,transition:"all .15s",
+                      transform:active?"scale(1.08)":"scale(1)",
+                    }}>
+                      <span style={{fontSize:24}}>{emoji}</span>
+                      <span style={{fontSize:9,fontWeight:700,color:active?cat.color:"#374151",letterSpacing:.5,lineHeight:1.2}}>{label}</span>
+                      <span style={{fontFamily:"'Orbitron',monospace",fontSize:11,fontWeight:900,color:active?cat.color:"#1e2a3a"}}>{r}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>selected&&onRate(selected)} disabled={!selected} style={{
+                  flex:1,padding:"13px",borderRadius:11,fontFamily:"inherit",fontSize:14,fontWeight:800,
+                  cursor:selected?"pointer":"not-allowed",
+                  border:`1px solid ${selected?cat.color+"60":"rgba(255,255,255,.06)"}`,
+                  background:selected?`${cat.color}25`:"rgba(255,255,255,.03)",
+                  color:selected?cat.color:"#374151",letterSpacing:.5,transition:"all .2s",
+                }}>✓ SAVE RATING</button>
+                <button onClick={onSkip} style={{
+                  padding:"13px 18px",borderRadius:11,fontFamily:"inherit",fontSize:13,fontWeight:700,
+                  cursor:"pointer",border:"1px solid rgba(255,255,255,.08)",
+                  background:"rgba(255,255,255,.03)",color:"#374151",
+                }}>Skip</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       // ── APP ──────────────────────────────────────────────────────
       function App() {
         // Existing state
@@ -1695,6 +1752,7 @@
         const [focusModeActive,setFocusMode] = useState(false);
         const [activeTab,setActiveTab]       = useState("dashboard");
         const [showGoalEditor,setGoalEditor] = useState(false);
+        const [pendingRatingSession,setPendingRating] = useState(null);
         const timerRef = useRef(null);
         const pendingSessionRef = useRef(null);
         const sessionsRef = useRef([]);
@@ -1800,18 +1858,26 @@
         // Process pending session after activeSession becomes null
         useEffect(()=>{
           if(activeSession===null&&pendingSessionRef.current) {
-            const {newSession, xp} = pendingSessionRef.current;
+            const pending = pendingSessionRef.current;
             pendingSessionRef.current = null;
-            const updatedSessions = [...sessionsRef.current, newSession];
-            setSessions(updatedSessions);
-            sStore(SESSIONS_KEY, updatedSessions);
             sStore(ACTIVE_SESSION_KEY, null);
             try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch{}
-            setSessionsXP(p=>p+xp);
-            if(xp>0) { fireXP(xp,"📚"); fireConfetti(); }
-            checkAchievementsForSessions(updatedSessions);
+            setPendingRating(pending);
           }
         },[activeSession]);
+
+        const submitRatedSession = (focusScore) => {
+          if (!pendingRatingSession) return;
+          const {newSession, xp} = pendingRatingSession;
+          const ratedSession = {...newSession, focusScore: focusScore||null};
+          const updatedSessions = [...sessionsRef.current, ratedSession];
+          setSessions(updatedSessions);
+          sStore(SESSIONS_KEY, updatedSessions);
+          setSessionsXP(p=>p+xp);
+          if(xp>0) { fireXP(xp,"📚"); fireConfetti(); }
+          checkAchievementsForSessions(updatedSessions);
+          setPendingRating(null);
+        };
 
         // ── ACHIEVEMENTS ──
         const checkAchievementsForSessions = (updatedSessions) => {
@@ -2395,6 +2461,7 @@
             {/* ── MODALS ── */}
             {showHabitSetup&&<HabitSetupModal habits={habits} onSave={saveHabits} onClose={()=>setHabitSetup(false)}/>}
             {showGoalEditor&&<GoalEditor goals={goals} onSave={g=>{setGoals(g);sStore(GOALS_KEY,g);setGoalEditor(false);}} onClose={()=>setGoalEditor(false)}/>}
+            {pendingRatingSession&&<FocusRatingModal session={pendingRatingSession.newSession} onRate={submitRatedSession} onSkip={()=>submitRatedSession(null)}/>}
           </div>
         );
       }
