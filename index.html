@@ -212,11 +212,17 @@
         return {totalXP,level,xpInLvl,streak,totalCompleted:done.length,pct};
       }
       function getTodayQuote() { return QUOTES[new Date().getDay() % QUOTES.length]; }
+      function localDateStr(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth()+1).padStart(2,"0");
+        const dt = String(d.getDate()).padStart(2,"0");
+        return `${y}-${m}-${dt}`;
+      }
       function getWeekStart() {
         const d = new Date(); d.setHours(0,0,0,0);
         const day = d.getDay(); const diff = (day === 0 ? -6 : 1 - day);
         d.setDate(d.getDate() + diff);
-        return d.toISOString().split("T")[0];
+        return localDateStr(d);
       }
       function getDateRange(startDate, endDate) {
         const dates = []; let cur = new Date(startDate+"T00:00:00");
@@ -1681,7 +1687,7 @@
         const [newText, setNewText] = useState("");
         const [priority, setPriority] = useState("medium");
         const weekStart = getWeekStart();
-        const weekEnd   = (()=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()+6); return d.toISOString().split("T")[0]; })();
+        const weekEnd   = (()=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()+6); return localDateStr(d); })();
         const weekLabel = (()=>{
           const s=new Date(weekStart+"T00:00:00"), e=new Date(weekEnd+"T00:00:00");
           const fmt = d=>d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
