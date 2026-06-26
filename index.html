@@ -32,6 +32,7 @@
       const ACHIEVEMENTS_KEY   = "ppos-achievements-v1";
       const ACTIVE_SESSION_KEY = "ppos-active-session-v1";
       const SESSIONSXP_KEY     = "ppos-sessionsxp-v1";
+      const WEEKLY_TASKS_KEY   = "ppos-weekly-tasks-v1";
 
       const STUDY_CATEGORIES = [
         { id:"dsa",      label:"DSA",            color:"#fb923c", icon:"🧠" },
@@ -1675,6 +1676,81 @@
         );
       }
 
+      // ── WEEKLY TASKS PANEL ──────────────────────────────────────
+      function WeeklyTasksPanel({weeklyTasks, onAdd, onToggle, onRemove}) {
+        const [newText, setNewText] = useState("");
+        const [priority, setPriority] = useState("medium");
+        const weekStart = getWeekStart();
+        const weekEnd   = (()=>{ const d=new Date(weekStart+"T00:00:00"); d.setDate(d.getDate()+6); return d.toISOString().split("T")[0]; })();
+        const weekLabel = (()=>{
+          const s=new Date(weekStart+"T00:00:00"), e=new Date(weekEnd+"T00:00:00");
+          const fmt = d=>d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+          return `${fmt(s)} – ${fmt(e)}`;
+        })();
+        const tasks   = weeklyTasks.filter(t=>t.weekStart===weekStart);
+        const done    = tasks.filter(t=>t.done).length;
+        const total   = tasks.length;
+        const pct     = total>0 ? Math.round((done/total)*100) : 0;
+        const sorted  = [...tasks].sort((a,b)=>{
+          const O={critical:0,high:1,medium:2,low:3};
+          if(a.done!==b.done) return a.done?1:-1;
+          return (O[a.priority]||2)-(O[b.priority]||2);
+        });
+        const submit = () => { if(!newText.trim()) return; onAdd(newText.trim(), priority); setNewText(""); };
+        return (
+          <div style={{background:"rgba(255,255,255,.02)",border:"1px solid rgba(96,165,250,.25)",borderRadius:16,padding:"20px 22px",marginBottom:20}}>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontFamily:"'Orbitron',monospace",fontSize:12,fontWeight:800,color:"#60a5fa",letterSpacing:2,marginBottom:3}}>📋 THIS WEEK'S MISSIONS</div>
+                <div style={{fontSize:12,color:"#4b5563",fontWeight:600}}>{weekLabel}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontFamily:"'Orbitron',monospace",fontSize:20,fontWeight:900,color:pct===100?"#34d399":"#60a5fa",lineHeight:1}}>{done}/{total}</div>
+                <div style={{fontSize:10,color:"#4b5563",marginTop:1}}>{pct}% done</div>
+              </div>
+            </div>
+            {/* Progress bar */}
+            {total>0&&(
+              <div style={{background:"rgba(255,255,255,.05)",borderRadius:999,height:5,overflow:"hidden",marginBottom:14}}>
+                <div style={{height:"100%",width:`${pct}%`,background:pct===100?"linear-gradient(90deg,#34d399,#6ee7b7)":"linear-gradient(90deg,#60a5fa,#93c5fd)",borderRadius:999,transition:"width .5s"}}/>
+              </div>
+            )}
+            {/* Task list */}
+            {sorted.length===0&&(
+              <div style={{fontSize:13,color:"#1e2a3a",fontStyle:"italic",marginBottom:14}}>No weekly missions yet. Add your first one below!</div>
+            )}
+            {sorted.map(t=>{
+              const PC={critical:{color:"#ef4444",bg:"rgba(239,68,68,.08)"},high:{color:"#fb923c",bg:"rgba(251,146,60,.08)"},medium:{color:"#f59e0b",bg:"rgba(245,158,11,.06)"},low:{color:"#34d399",bg:"rgba(52,211,153,.06)"}}[t.priority]||{color:"#f59e0b",bg:"rgba(245,158,11,.06)"};
+              return (
+                <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"10px 12px",borderRadius:10,background:t.done?"rgba(255,255,255,.01)":PC.bg,border:`1px solid ${t.done?"rgba(255,255,255,.05)":PC.color+"28"}`,transition:"all .2s"}}>
+                  <input type="checkbox" checked={t.done} onChange={()=>onToggle(t.id)} style={{accentColor:"#60a5fa",width:17,height:17,cursor:"pointer",flexShrink:0}}/>
+                  <span style={{flex:1,fontSize:14,color:t.done?"#2d3748":"#cbd5e1",textDecoration:t.done?"line-through":"none",fontWeight:600,lineHeight:1.4}}>{t.text}</span>
+                  <div style={{width:7,height:7,borderRadius:"50%",background:PC.color,opacity:t.done?.3:1,flexShrink:0}} title={t.priority}/>
+                  <button onClick={()=>onRemove(t.id)} style={{background:"none",border:"none",color:"#374151",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 2px",flexShrink:0}}>×</button>
+                </div>
+              );
+            })}
+            {/* Add input */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:sorted.length>0?6:0}}>
+              <div style={{display:"flex",gap:5,flexShrink:0}}>
+                {Object.entries({critical:"#ef4444",high:"#fb923c",medium:"#f59e0b",low:"#34d399"}).map(([key,col])=>(
+                  <button key={key} onClick={()=>setPriority(key)} title={key} style={{width:13,height:13,borderRadius:"50%",border:`2px solid ${priority===key?col:"transparent"}`,background:col,cursor:"pointer",padding:0,boxShadow:priority===key?`0 0 6px ${col}`:"none",transition:"box-shadow .2s"}}/>
+                ))}
+              </div>
+              <div style={{flex:1,display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:"rgba(255,255,255,.03)",borderRadius:9,border:"1px dashed rgba(96,165,250,.2)"}}>
+                <span style={{color:"#2d3748",fontSize:17,lineHeight:1}}>+</span>
+                <input
+                  className="addinput" placeholder="Add a mission for this week..."
+                  value={newText} onChange={e=>setNewText(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&submit()}
+                  style={{fontSize:14}}/>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       // ── FOCUS RATING MODAL ──────────────────────────────────────
       function FocusRatingModal({session, onRate, onSkip}) {
         const [selected, setSelected] = useState(null);
@@ -1748,6 +1824,7 @@
         const [sessions,setSessions]         = useState([]);
         const [goals,setGoals]               = useState(DEFAULT_GOALS);
         const [achievements,setAchievements] = useState([]);
+        const [weeklyTasks,setWeeklyTasks]   = useState([]);
         const [activeSession,setActiveSession] = useState(null);
         const [focusModeActive,setFocusMode] = useState(false);
         const [activeTab,setActiveTab]       = useState("dashboard");
@@ -1775,6 +1852,8 @@
             if(g) setGoals({...DEFAULT_GOALS,...g});
             const ach = await gStore(ACHIEVEMENTS_KEY);
             if(ach) setAchievements(ach);
+            const wt = await gStore(WEEKLY_TASKS_KEY);
+            if(wt) setWeeklyTasks(wt);
             // Crash recovery
             const saved = await gStore(ACTIVE_SESSION_KEY);
             if(saved&&saved.startTime) {
@@ -1799,6 +1878,7 @@
         useEffect(()=>{ if(!loading&&sessionsXP>0) sStore(SESSIONSXP_KEY,sessionsXP); },[sessionsXP,loading]);
         useEffect(()=>{ if(!loading) sStore(GOALS_KEY,goals); },[goals,loading]);
         useEffect(()=>{ if(!loading) sStore(ACHIEVEMENTS_KEY,achievements); },[achievements,loading]);
+        useEffect(()=>{ if(!loading) sStore(WEEKLY_TASKS_KEY,weeklyTasks); },[weeklyTasks,loading]);
 
         // ── TIMER HELPERS ──
         function startTimerInterval(session) {
@@ -1922,6 +2002,14 @@
         const updateDay    = (id,upd)      => setDays(p=>p.map(d=>d.id===id?{...d,...upd}:d));
         const saveHabits   = async list   => { setHabits(list); await sStore(HABITS_KEY,list); setHabitSetup(false); };
         const deleteSession = id           => setSessions(p=>p.filter(s=>s.id!==id));
+
+        // ── WEEKLY TASK HANDLERS ──
+        const addWeeklyTask    = (text, priority="medium") => {
+          if (!text.trim()) return;
+          setWeeklyTasks(p=>[...p, {id:Date.now().toString(), text:text.trim(), done:false, priority, weekStart:getWeekStart()}]);
+        };
+        const toggleWeeklyTask = (id) => setWeeklyTasks(p=>p.map(t=>t.id===id?{...t,done:!t.done}:t));
+        const removeWeeklyTask = (id) => setWeeklyTasks(p=>p.filter(t=>t.id!==id));
 
         const exportBackup = () => {
           const blob=new Blob([JSON.stringify({days,habits,pomXP,sessions,goals,achievements},null,2)],{type:"application/json"});
@@ -2381,6 +2469,14 @@
               {/* ========== MISSIONS TAB ========== */}
               {activeTab==="missions"&&(
                 <div>
+                  {/* Weekly Tasks Panel */}
+                  <WeeklyTasksPanel
+                    weeklyTasks={weeklyTasks}
+                    onAdd={addWeeklyTask}
+                    onToggle={toggleWeeklyTask}
+                    onRemove={removeWeeklyTask}
+                  />
+
                   {/* Secondary nav for missions */}
                   <div style={{marginBottom:20}}>
                     <div style={{display:"flex",gap:6,background:"rgba(255,255,255,.03)",borderRadius:12,padding:4,border:"1px solid rgba(255,255,255,.06)",marginBottom:20}}>
